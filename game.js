@@ -2,27 +2,44 @@
 
 // ---------------------------------------------------------------------------
 // Forest Mini Golf — Babylon.js
-// 18-hole fixed course with a forest theme. Static site, custom physics.
+// 18-hole fixed course, forest theme.
+//
+// Physics: custom, time-based (fixed sub-steps) with full 3D velocity.
+//   - Gravity pulls the ball down each step.
+//   - The green is a height field (flat + ramps + a funnel around each cup).
+//   - Contact with the surface is resolved against the surface NORMAL, so the
+//     ball rolls down slopes, climbs ramps, and slows via rolling friction.
+//   - Each cup is a real pit: the mesh is depressed and there's no floor over
+//     the opening, so the ball loses support and falls in naturally. A fast
+//     ball keeps enough height to skip the rim (lip-out); a slow one drops.
 // ---------------------------------------------------------------------------
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true });
 
+// --- Tunable constants (units are roughly "meters") -----------------------
 const BALL_RADIUS = 0.35;
 const HOLE_RADIUS = 0.6;
-const FRICTION = 0.985;
-const STOP_SPEED = 0.02;
-const MAX_POWER = 0.9;
+const CUP_DEPTH = 0.85;
+const FUNNEL_R = 1.6;          // radius of the gentle dip that feeds the cup
+const FUNNEL_DEPTH = 0.13;
+const GRAVITY = 22;            // units / s^2
+const GROUND_RESTITUTION = 0.32;
+const WALL_RESTITUTION = 0.62;
+const ROLL_C = 0.82;           // rolling-friction decay coefficient (per second)
+const STOP_SPEED = 0.32;       // below this horizontal speed on the ground, the ball stops
+const MAX_SPEED = 16;          // strongest putt
 const WALL_HEIGHT = 1.1;
 const WALL_THICK = 0.5;
-const BOUNCE = 0.7;
+const FIXED_DT = 1 / 120;      // physics sub-step
 
 // ---------------------------------------------------------------------------
-// Course: 18 fixed holes.
+// Course definition. Each hole:
 //   bounds: playable rectangle (XZ)
 //   tee/cup: positions
-//   walls:  axis-aligned box obstacles { x, z, w (x-size), d (z-size) }
+//   walls:  box obstacles { x, z, w (x-size), d (z-size) }
 //   rocks:  circular obstacles { x, z, r }
+//   ramps:  raised terrain { axis: 'x'|'z', from, to, height }  (full-width slope)
 // ---------------------------------------------------------------------------
 const HOLES = [
   { par: 2, bounds: { minX: -6, maxX: 6, minZ: -9, maxZ: 9 }, tee: { x: 0, z: -6 }, cup: { x: 0, z: 6 }, walls: [], rocks: [] },
@@ -31,7 +48,8 @@ const HOLES = [
   { par: 3, bounds: { minX: -7, maxX: 7, minZ: -10, maxZ: 10 }, tee: { x: 0, z: -7 }, cup: { x: 0, z: 7 }, walls: [], rocks: [{ x: 0, z: 0, r: 1.2 }] },
   { par: 2, bounds: { minX: -6, maxX: 6, minZ: -9, maxZ: 9 }, tee: { x: 0, z: -6 }, cup: { x: 0, z: 6 }, walls: [], rocks: [{ x: -1.8, z: 1, r: 0.8 }, { x: 1.8, z: -1, r: 0.8 }] },
   { par: 3, bounds: { minX: -7, maxX: 7, minZ: -12, maxZ: 12 }, tee: { x: -4, z: -9 }, cup: { x: 4, z: 9 }, walls: [{ x: 2, z: -4, w: 8, d: WALL_THICK }, { x: -2, z: 4, w: 8, d: WALL_THICK }], rocks: [] },
-  { par: 4, bounds: { minX: -7, maxX: 7, minZ: -14, maxZ: 14 }, tee: { x: 0, z: -12 }, cup: { x: 0, z: 12 }, walls: [{ x: -3, z: -3, w: WALL_THICK, d: 8 }, { x: 3, z: 3, w: WALL_THICK, d: 8 }], rocks: [] },
+  // Hole 7: a ramp up to a raised green where the cup sits.
+  { par: 4, bounds: { minX: -7, maxX: 7, minZ: -13, maxZ: 13 }, tee: { x: 0, z: -9 }, cup: { x: 0, z: 9 }, walls: [], rocks: [], ramps: [{ axis: "z", from: -4, to: 0, height: 1.3 }] },
   { par: 3, bounds: { minX: -8, maxX: 8, minZ: -11, maxZ: 11 }, tee: { x: 0, z: -8 }, cup: { x: 0, z: 8 }, walls: [{ x: -5.25, z: 0, w: 5.5, d: WALL_THICK }, { x: 5.25, z: 0, w: 5.5, d: WALL_THICK }], rocks: [] },
   { par: 3, bounds: { minX: -7, maxX: 7, minZ: -11, maxZ: 11 }, tee: { x: 0, z: -8 }, cup: { x: 0, z: 8 }, walls: [], rocks: [{ x: -1.5, z: 0, r: 0.9 }, { x: 1.5, z: 0, r: 0.9 }, { x: 0, z: 3.5, r: 0.9 }] },
   { par: 4, bounds: { minX: -8, maxX: 8, minZ: -13, maxZ: 13 }, tee: { x: -5, z: -10 }, cup: { x: 5, z: 10 }, walls: [{ x: -2, z: -4, w: 9, d: WALL_THICK }, { x: 2, z: 4, w: 9, d: WALL_THICK }], rocks: [] },
@@ -54,17 +72,17 @@ const holeScores = new Array(HOLES.length).fill(null);
 // Scene + atmosphere
 // ---------------------------------------------------------------------------
 const scene = new BABYLON.Scene(engine);
-scene.clearColor = new BABYLON.Color3(0.42, 0.55, 0.45); // misty forest sky
+scene.clearColor = new BABYLON.Color3(0.42, 0.55, 0.45);
 scene.fogMode = BABYLON.Scene.FOGMODE_EXP2;
 scene.fogColor = new BABYLON.Color3(0.42, 0.55, 0.45);
-scene.fogDensity = 0.018;
+scene.fogDensity = 0.017;
 
 const camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, 0.82, 30, BABYLON.Vector3.Zero(), scene);
 camera.attachControl(canvas, true);
 camera.lowerBetaLimit = 0.15;
 camera.upperBetaLimit = 1.35;
 camera.lowerRadiusLimit = 12;
-camera.upperRadiusLimit = 70;
+camera.upperRadiusLimit = 75;
 camera.wheelPrecision = 18;
 camera.panningSensibility = 0;
 
@@ -91,7 +109,6 @@ function mat(name, r, g, b, spec) {
 }
 
 const grassMat = mat("grass", 0.22, 0.5, 0.24);
-const fairwayMat = mat("fairway", 0.28, 0.58, 0.3);
 const floorMat = mat("floor", 0.13, 0.2, 0.12);
 const woodMat = mat("wood", 0.42, 0.28, 0.16);
 const trunkMat = mat("trunk", 0.32, 0.2, 0.11);
@@ -99,36 +116,97 @@ const leafMat = mat("leaf", 0.13, 0.36, 0.17);
 const leafMat2 = mat("leaf2", 0.17, 0.44, 0.2);
 const rockMat = mat("rock", 0.45, 0.46, 0.48, 0.12);
 const ballMat = mat("ball", 0.96, 0.97, 0.98, 0.6);
-const cupMat = mat("cup", 0.02, 0.02, 0.02);
+const cupMat = mat("cup", 0.015, 0.02, 0.015);
+cupMat.backFaceCulling = false; // so the inside walls of the open cup render
 const flagMat = mat("flag", 0.9, 0.2, 0.25);
 flagMat.emissiveColor = new BABYLON.Color3(0.35, 0.05, 0.07);
 
 // ---------------------------------------------------------------------------
-// Persistent meshes
+// Persistent meshes / state
 // ---------------------------------------------------------------------------
 const ball = BABYLON.MeshBuilder.CreateSphere("ball", { diameter: BALL_RADIUS * 2, segments: 16 }, scene);
 ball.material = ballMat;
-ball.position.y = BALL_RADIUS;
 shadowGen.addShadowCaster(ball);
 
-const ballVel = { x: 0, z: 0 };
+const vel = { x: 0, y: 0, z: 0 };  // 3D velocity (units / s)
 let ballMoving = false;
 let holeComplete = false;
 let aimLine = null;
 
 let courseMeshes = [];
-let cupCenter = { x: 0, z: 0 };
 let bounds = null;
 let walls = [];
 let rocks = [];
+let features = [];     // terrain height contributors (ramps)
+let baseMax = 0;       // tallest base terrain on this hole
 
-// Deterministic RNG so the "set course" looks identical every play.
+let cupX = 0, cupZ = 0;
+let cupBaseY = 0, cupRimY = 0, cupFloorY = 0;
+
 function makeRng(seed) {
   let s = seed >>> 0;
   return function () {
     s = (s * 1664525 + 1013904223) >>> 0;
     return s / 4294967296;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Terrain model (shared by mesh generation and physics)
+// ---------------------------------------------------------------------------
+function baseHeight(x, z) {
+  let h = 0;
+  for (const f of features) h += f(x, z);
+  return h;
+}
+
+function funnelOffset(dc) {
+  if (dc >= FUNNEL_R) return 0;
+  const t = 1 - dc / FUNNEL_R;
+  return -FUNNEL_DEPTH * t * t;
+}
+
+// Green surface height (base ramps + cup funnel), excluding the vertical pit.
+function terrainHeight(x, z) {
+  let h = baseHeight(x, z);
+  const dc = Math.hypot(x - cupX, z - cupZ);
+  h += funnelOffset(dc);
+  return h;
+}
+
+function terrainNormal(x, z) {
+  const e = 0.06;
+  const hL = terrainHeight(x - e, z);
+  const hR = terrainHeight(x + e, z);
+  const hD = terrainHeight(x, z - e);
+  const hU = terrainHeight(x, z + e);
+  let nx = -(hR - hL) / (2 * e);
+  let nz = -(hU - hD) / (2 * e);
+  let ny = 1;
+  const len = Math.hypot(nx, ny, nz) || 1;
+  return { x: nx / len, y: ny / len, z: nz / len };
+}
+
+// Height used to build the visible mesh (includes the depressed pit).
+function meshHeight(x, z) {
+  const dc = Math.hypot(x - cupX, z - cupZ);
+  if (dc < HOLE_RADIUS) return cupFloorY;
+  return terrainHeight(x, z);
+}
+
+// Where the ball's CENTER is supported at (x, z), plus the surface normal.
+function supportAt(x, z) {
+  const dc = Math.hypot(x - cupX, z - cupZ);
+  if (dc >= HOLE_RADIUS) {
+    return { y: terrainHeight(x, z) + BALL_RADIUS, n: terrainNormal(x, z) };
+  }
+  const edge = HOLE_RADIUS - dc; // how far inside the rim
+  if (edge < BALL_RADIUS && !holeComplete) {
+    // resting on the rim lip (ignored once the ball is captured so it drops in)
+    return { y: cupRimY + Math.sqrt(BALL_RADIUS * BALL_RADIUS - edge * edge), n: { x: 0, y: 1, z: 0 } };
+  }
+  // fully over the opening -> only the pit floor supports it
+  return { y: cupFloorY + BALL_RADIUS, n: { x: 0, y: 1, z: 0 } };
 }
 
 // ---------------------------------------------------------------------------
@@ -141,9 +219,10 @@ function clearCourse() {
   rocks = [];
 }
 
-function addWall(x, z, w, d) {
-  const wall = BABYLON.MeshBuilder.CreateBox("wall", { width: w, height: WALL_HEIGHT, depth: d }, scene);
-  wall.position.set(x, WALL_HEIGHT / 2, z);
+function addWall(x, z, w, d, wh) {
+  const height = wh || WALL_HEIGHT;
+  const wall = BABYLON.MeshBuilder.CreateBox("wall", { width: w, height, depth: d }, scene);
+  wall.position.set(x, height / 2, z);
   wall.material = woodMat;
   wall.receiveShadows = true;
   shadowGen.addShadowCaster(wall);
@@ -153,7 +232,7 @@ function addWall(x, z, w, d) {
 
 function addRock(x, z, r) {
   const rock = BABYLON.MeshBuilder.CreateSphere("rock", { diameter: r * 2, segments: 10 }, scene);
-  rock.position.set(x, r * 0.55, z);
+  rock.position.set(x, baseHeight(x, z) + r * 0.55, z);
   rock.scaling.y = 0.7;
   rock.material = rockMat;
   rock.receiveShadows = true;
@@ -167,12 +246,9 @@ function makeTree(x, z, s, rng) {
   trunk.position.set(x, 0.8 * s, z);
   trunk.material = trunkMat;
   courseMeshes.push(trunk);
-
   const tiers = 2 + Math.floor(rng() * 2);
   for (let i = 0; i < tiers; i++) {
-    const cone = BABYLON.MeshBuilder.CreateCylinder("foliage", {
-      height: 1.6 * s, diameterTop: 0, diameterBottom: (2.2 - i * 0.5) * s, tessellation: 8,
-    }, scene);
+    const cone = BABYLON.MeshBuilder.CreateCylinder("foliage", { height: 1.6 * s, diameterTop: 0, diameterBottom: (2.2 - i * 0.5) * s, tessellation: 8 }, scene);
     cone.position.set(x, (1.7 + i * 1.0) * s, z);
     cone.material = i % 2 === 0 ? leafMat : leafMat2;
     shadowGen.addShadowCaster(cone);
@@ -180,82 +256,110 @@ function makeTree(x, z, s, rng) {
   }
 }
 
+function buildGreen(cx, cz, width, depth) {
+  const subs = Math.min(Math.max(Math.round(Math.max(width, depth) / 0.18), 80), 220);
+  const green = BABYLON.MeshBuilder.CreateGround("ground", { width, height: depth, subdivisions: subs, updatable: true }, scene);
+  green.position.set(cx, 0, cz);
+
+  const positions = green.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+  for (let i = 0; i < positions.length; i += 3) {
+    const wx = positions[i] + cx;
+    const wz = positions[i + 2] + cz;
+    positions[i + 1] = meshHeight(wx, wz);
+  }
+  const indices = green.getIndices();
+  const normals = [];
+  BABYLON.VertexData.ComputeNormals(positions, indices, normals);
+  green.updateVerticesData(BABYLON.VertexBuffer.PositionKind, positions);
+  green.updateVerticesData(BABYLON.VertexBuffer.NormalKind, normals);
+
+  green.material = grassMat;
+  green.receiveShadows = true;
+  courseMeshes.push(green);
+}
+
 function buildHole(index) {
   clearCourse();
   const h = HOLES[index];
   bounds = h.bounds;
-  cupCenter = { x: h.cup.x, z: h.cup.z };
+  cupX = h.cup.x;
+  cupZ = h.cup.z;
   const rng = makeRng(index * 7919 + 17);
+
+  // terrain features (ramps)
+  features = [];
+  baseMax = 0;
+  (h.ramps || []).forEach((r) => {
+    const from = r.from, to = r.to, height = r.height, axis = r.axis;
+    features.push((x, z) => {
+      const u = axis === "z" ? z : x;
+      if (u <= from) return 0;
+      if (u >= to) return height;
+      return height * (u - from) / (to - from);
+    });
+    baseMax = Math.max(baseMax, Math.max(0, height));
+  });
+
+  // cup vertical metrics
+  cupBaseY = baseHeight(cupX, cupZ);
+  cupRimY = cupBaseY + funnelOffset(HOLE_RADIUS);
+  cupFloorY = cupBaseY - CUP_DEPTH;
 
   const width = bounds.maxX - bounds.minX;
   const depth = bounds.maxZ - bounds.minZ;
   const cx = (bounds.minX + bounds.maxX) / 2;
   const cz = (bounds.minZ + bounds.maxZ) / 2;
 
-  // Forest floor (large, beneath everything) for depth
-  const floor = BABYLON.MeshBuilder.CreateGround("forestFloor", { width: width + 40, height: depth + 40 }, scene);
-  floor.position.set(cx, -0.08, cz);
+  // Forest floor for depth
+  const floor = BABYLON.MeshBuilder.CreateGround("forestFloor", { width: width + 44, height: depth + 44 }, scene);
+  floor.position.set(cx, -0.6, cz);
   floor.material = floorMat;
   courseMeshes.push(floor);
 
-  // Playable green
-  const ground = BABYLON.MeshBuilder.CreateGround("ground", { width, height: depth }, scene);
-  ground.position.set(cx, 0, cz);
-  ground.material = grassMat;
-  ground.receiveShadows = true;
-  courseMeshes.push(ground);
+  // Displaced green (flat + ramps + cup pit)
+  buildGreen(cx, cz, width, depth);
 
-  // A lighter fairway strip from tee to cup
-  const fdx = h.cup.x - h.tee.x;
-  const fdz = h.cup.z - h.tee.z;
-  const fairway = BABYLON.MeshBuilder.CreateGround("fairwayStrip", { width: 2.4, height: Math.hypot(fdx, fdz) }, scene);
-  fairway.position.set((h.tee.x + h.cup.x) / 2, 0.01, (h.tee.z + h.cup.z) / 2);
-  fairway.rotation.y = Math.atan2(fdx, fdz);
-  fairway.material = fairwayMat;
-  courseMeshes.push(fairway);
+  // Dark cup: a closed dark cylinder whose top sits just below the rim, so it
+  // reads as a clean recessed hole. The mesh pit underneath lets the ball drop.
+  const cupTopY = cupRimY - 0.02;
+  const tube = BABYLON.MeshBuilder.CreateCylinder("cupTube", { height: CUP_DEPTH, diameter: HOLE_RADIUS * 2, tessellation: 30 }, scene);
+  tube.position.set(cupX, cupTopY - CUP_DEPTH / 2, cupZ);
+  tube.material = cupMat;
+  courseMeshes.push(tube);
 
-  // Perimeter log walls
-  addWall(cx, bounds.minZ - WALL_THICK / 2, width + WALL_THICK * 2, WALL_THICK);
-  addWall(cx, bounds.maxZ + WALL_THICK / 2, width + WALL_THICK * 2, WALL_THICK);
-  addWall(bounds.minX - WALL_THICK / 2, cz, WALL_THICK, depth);
-  addWall(bounds.maxX + WALL_THICK / 2, cz, WALL_THICK, depth);
+  // Perimeter walls (raised to cover any plateau)
+  const pwh = WALL_HEIGHT + baseMax;
+  addWall(cx, bounds.minZ - WALL_THICK / 2, width + WALL_THICK * 2, WALL_THICK, pwh);
+  addWall(cx, bounds.maxZ + WALL_THICK / 2, width + WALL_THICK * 2, WALL_THICK, pwh);
+  addWall(bounds.minX - WALL_THICK / 2, cz, WALL_THICK, depth, pwh);
+  addWall(bounds.maxX + WALL_THICK / 2, cz, WALL_THICK, depth, pwh);
 
   h.walls.forEach((w) => addWall(w.x, w.z, w.w, w.d));
-  h.rocks.forEach((r) => addRock(r.x, r.z, r.r));
+  (h.rocks || []).forEach((r) => addRock(r.x, r.z, r.r));
 
-  // Cup + flag
-  const cup = BABYLON.MeshBuilder.CreateDisc("cup", { radius: HOLE_RADIUS, tessellation: 24 }, scene);
-  cup.rotation.x = Math.PI / 2;
-  cup.position.set(cupCenter.x, 0.03, cupCenter.z);
-  cup.material = cupMat;
-  courseMeshes.push(cup);
-
+  // Flag
   const pole = BABYLON.MeshBuilder.CreateCylinder("pole", { height: 3, diameter: 0.08 }, scene);
-  pole.position.set(cupCenter.x, 1.5, cupCenter.z);
+  pole.position.set(cupX, cupBaseY + 1.5, cupZ);
   pole.material = woodMat;
   courseMeshes.push(pole);
 
   const flag = BABYLON.MeshBuilder.CreatePlane("flag", { width: 1, height: 0.6 }, scene);
-  flag.position.set(cupCenter.x + 0.5, 2.6, cupCenter.z);
+  flag.position.set(cupX + 0.5, cupBaseY + 2.6, cupZ);
   flag.material = flagMat;
-  flag.rotation.y = Math.PI / 2;
   flag.billboardMode = BABYLON.Mesh.BILLBOARDMODE_Y;
   courseMeshes.push(flag);
 
-  // Decorative forest ring of trees just outside the walls
+  // Surrounding forest
   placeTrees(cx, cz, width, depth, rng);
 
-  // Reset ball
-  ball.position.set(h.tee.x, BALL_RADIUS, h.tee.z);
-  ball.scaling.set(1, 1, 1);
-  ballVel.x = 0;
-  ballVel.z = 0;
+  // Reset ball onto the tee surface
+  ball.position.set(h.tee.x, terrainHeight(h.tee.x, h.tee.z) + BALL_RADIUS, h.tee.z);
+  vel.x = vel.y = vel.z = 0;
   ballMoving = false;
   holeComplete = false;
 
-  // Frame the whole course
   camera.setTarget(new BABYLON.Vector3(cx, 0, cz));
-  camera.radius = Math.min(Math.max(Math.max(width, depth) * 1.35, 18), 62);
+  camera.radius = Math.min(Math.max(Math.max(width, depth) * 1.35, 18), 66);
 
   document.getElementById("hole").textContent = String(index + 1);
   document.getElementById("par").textContent = String(h.par);
@@ -267,120 +371,152 @@ function placeTrees(cx, cz, width, depth, rng) {
   const halfW = width / 2 + 1.5;
   const halfD = depth / 2 + 1.5;
   const ring = 3.5;
-  const stepX = 3.0;
-  const stepZ = 3.4;
-  // top & bottom rows
-  for (let x = cx - halfW - ring; x <= cx + halfW + ring; x += stepX) {
+  for (let x = cx - halfW - ring; x <= cx + halfW + ring; x += 3.0) {
     placeJittered(x, cz - halfD - ring * (0.6 + rng()), rng);
     placeJittered(x, cz + halfD + ring * (0.6 + rng()), rng);
   }
-  // left & right columns
-  for (let z = cz - halfD; z <= cz + halfD; z += stepZ) {
+  for (let z = cz - halfD; z <= cz + halfD; z += 3.4) {
     placeJittered(cx - halfW - ring * (0.6 + rng()), z, rng);
     placeJittered(cx + halfW + ring * (0.6 + rng()), z, rng);
   }
 }
 
 function placeJittered(x, z, rng) {
-  const jx = (rng() - 0.5) * 2.2;
-  const jz = (rng() - 0.5) * 2.2;
-  const s = 0.8 + rng() * 0.9;
-  makeTree(x + jx, z + jz, s, rng);
+  makeTree(x + (rng() - 0.5) * 2.2, z + (rng() - 0.5) * 2.2, 0.8 + rng() * 0.9, rng);
 }
 
 // ---------------------------------------------------------------------------
-// Physics
+// Physics — fixed sub-step integrator
 // ---------------------------------------------------------------------------
-function updateBall() {
-  if (!ballMoving || holeComplete) return;
+function physicsStep(dt) {
+  // gravity
+  vel.y -= GRAVITY * dt;
 
-  let nx = ball.position.x + ballVel.x;
-  let nz = ball.position.z + ballVel.z;
+  // once captured, gently pull the ball to the cup center so it settles in
+  if (holeComplete) {
+    vel.x += (cupX - ball.position.x) * 10 * dt;
+    vel.z += (cupZ - ball.position.z) * 10 * dt;
+  }
 
-  const minX = bounds.minX + BALL_RADIUS;
-  const maxX = bounds.maxX - BALL_RADIUS;
-  const minZ = bounds.minZ + BALL_RADIUS;
-  const maxZ = bounds.maxZ - BALL_RADIUS;
+  // integrate
+  ball.position.x += vel.x * dt;
+  ball.position.y += vel.y * dt;
+  ball.position.z += vel.z * dt;
 
-  if (nx < minX) { nx = minX; ballVel.x *= -BOUNCE; }
-  if (nx > maxX) { nx = maxX; ballVel.x *= -BOUNCE; }
-  if (nz < minZ) { nz = minZ; ballVel.z *= -BOUNCE; }
-  if (nz > maxZ) { nz = maxZ; ballVel.z *= -BOUNCE; }
+  resolveWalls();
+  resolveRocks();
+  resolveGround(dt);
+  checkCapture();
+  checkStop();
+}
 
-  // Box wall collisions
+function resolveWalls() {
   for (const w of walls) {
     const exMinX = w.minX - BALL_RADIUS;
     const exMaxX = w.maxX + BALL_RADIUS;
     const exMinZ = w.minZ - BALL_RADIUS;
     const exMaxZ = w.maxZ + BALL_RADIUS;
-    if (nx > exMinX && nx < exMaxX && nz > exMinZ && nz < exMaxZ) {
-      const overlapX = Math.min(nx - exMinX, exMaxX - nx);
-      const overlapZ = Math.min(nz - exMinZ, exMaxZ - nz);
+    let x = ball.position.x, z = ball.position.z;
+    if (x > exMinX && x < exMaxX && z > exMinZ && z < exMaxZ) {
+      const overlapX = Math.min(x - exMinX, exMaxX - x);
+      const overlapZ = Math.min(z - exMinZ, exMaxZ - z);
       if (overlapX < overlapZ) {
-        nx = nx < (w.minX + w.maxX) / 2 ? exMinX : exMaxX;
-        ballVel.x *= -BOUNCE;
+        ball.position.x = x < (w.minX + w.maxX) / 2 ? exMinX : exMaxX;
+        vel.x *= -WALL_RESTITUTION;
       } else {
-        nz = nz < (w.minZ + w.maxZ) / 2 ? exMinZ : exMaxZ;
-        ballVel.z *= -BOUNCE;
+        ball.position.z = z < (w.minZ + w.maxZ) / 2 ? exMinZ : exMaxZ;
+        vel.z *= -WALL_RESTITUTION;
       }
     }
   }
 
-  // Circular rock collisions (reflect along normal)
+  // outer bounds (in case the ball slips past)
+  const minX = bounds.minX + BALL_RADIUS, maxX = bounds.maxX - BALL_RADIUS;
+  const minZ = bounds.minZ + BALL_RADIUS, maxZ = bounds.maxZ - BALL_RADIUS;
+  if (ball.position.x < minX) { ball.position.x = minX; vel.x *= -WALL_RESTITUTION; }
+  if (ball.position.x > maxX) { ball.position.x = maxX; vel.x *= -WALL_RESTITUTION; }
+  if (ball.position.z < minZ) { ball.position.z = minZ; vel.z *= -WALL_RESTITUTION; }
+  if (ball.position.z > maxZ) { ball.position.z = maxZ; vel.z *= -WALL_RESTITUTION; }
+}
+
+function resolveRocks() {
   for (const c of rocks) {
-    const dx = nx - c.x;
-    const dz = nz - c.z;
+    const dx = ball.position.x - c.x;
+    const dz = ball.position.z - c.z;
     const minD = c.r + BALL_RADIUS;
     const d2 = dx * dx + dz * dz;
     if (d2 < minD * minD) {
       const d = Math.sqrt(d2) || 0.0001;
-      const nrx = dx / d;
-      const nrz = dz / d;
-      nx = c.x + nrx * minD;
-      nz = c.z + nrz * minD;
-      const dot = ballVel.x * nrx + ballVel.z * nrz;
-      ballVel.x -= 2 * dot * nrx;
-      ballVel.z -= 2 * dot * nrz;
-      ballVel.x *= BOUNCE;
-      ballVel.z *= BOUNCE;
+      const nx = dx / d, nz = dz / d;
+      ball.position.x = c.x + nx * minD;
+      ball.position.z = c.z + nz * minD;
+      const dot = vel.x * nx + vel.z * nz;
+      vel.x -= (1 + WALL_RESTITUTION) * dot * nx;
+      vel.z -= (1 + WALL_RESTITUTION) * dot * nz;
     }
   }
+}
 
-  ball.position.x = nx;
-  ball.position.z = nz;
-
-  ballVel.x *= FRICTION;
-  ballVel.z *= FRICTION;
-
-  const dx = ball.position.x - cupCenter.x;
-  const dz = ball.position.z - cupCenter.z;
-  const distToCup = Math.sqrt(dx * dx + dz * dz);
-  const speed = Math.sqrt(ballVel.x * ballVel.x + ballVel.z * ballVel.z);
-
-  if (distToCup < HOLE_RADIUS && speed < MAX_POWER * 0.6) {
-    sinkBall();
-    return;
+function resolveGround(dt) {
+  const s = supportAt(ball.position.x, ball.position.z);
+  if (ball.position.y <= s.y + 1e-3) {
+    ball.position.y = s.y;
+    const n = s.n;
+    const vDotN = vel.x * n.x + vel.y * n.y + vel.z * n.z;
+    if (vDotN < 0) {
+      const j = (1 + GROUND_RESTITUTION) * vDotN;
+      vel.x -= j * n.x;
+      vel.y -= j * n.y;
+      vel.z -= j * n.z;
+    }
+    // rolling friction (horizontal)
+    const damp = Math.exp(-ROLL_C * dt);
+    vel.x *= damp;
+    vel.z *= damp;
+    if (Math.abs(vel.y) < 0.5) vel.y = 0;
   }
+}
 
-  if (speed < STOP_SPEED) {
-    ballVel.x = 0;
-    ballVel.z = 0;
+function checkCapture() {
+  if (holeComplete) return;
+  const dc = Math.hypot(ball.position.x - cupX, ball.position.z - cupZ);
+  if (dc < HOLE_RADIUS * 0.92 && ball.position.y < cupRimY) {
+    holeComplete = true;
+    setTimeout(recordAndAdvance, 750);
+  }
+}
+
+const STATIC_FRICTION = 0.18; // tan of the max slope angle the ball can rest on (~10deg)
+
+function checkStop() {
+  if (holeComplete) return;
+  const s = supportAt(ball.position.x, ball.position.z);
+  const onGround = ball.position.y <= s.y + 1e-2;
+  if (!onGround) return;
+  const horiz = Math.hypot(vel.x, vel.z);
+  // Gravity component along the surface; if it exceeds static friction the
+  // ball can't rest here and must keep rolling downhill.
+  const slopeAccel = Math.sqrt(Math.max(0, 1 - s.n.y * s.n.y));
+  const canRest = slopeAccel < STATIC_FRICTION;
+  if (canRest && horiz < STOP_SPEED && Math.abs(vel.y) < 0.4) {
+    vel.x = vel.y = vel.z = 0;
     ballMoving = false;
   }
 }
 
-function sinkBall() {
-  holeComplete = true;
-  ballMoving = false;
-  ballVel.x = 0;
-  ballVel.z = 0;
-  ball.position.x = cupCenter.x;
-  ball.position.z = cupCenter.z;
-
-  const anim = new BABYLON.Animation("drop", "position.y", 30, BABYLON.Animation.ANIMATIONTYPE_FLOAT, BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT);
-  anim.setKeys([{ frame: 0, value: BALL_RADIUS }, { frame: 12, value: -BALL_RADIUS }]);
-  ball.animations = [anim];
-  scene.beginAnimation(ball, 0, 12, false, 1, () => recordAndAdvance());
+let accumulator = 0;
+function updatePhysics() {
+  if (!ballMoving) return;
+  let dt = engine.getDeltaTime() / 1000;
+  if (dt > 0.05) dt = 0.05; // clamp big frame gaps
+  accumulator += dt;
+  let guard = 0;
+  while (accumulator >= FIXED_DT && guard < 600) {
+    physicsStep(FIXED_DT);
+    accumulator -= FIXED_DT;
+    guard++;
+    if (!ballMoving) break;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -400,8 +536,9 @@ function groundPointFromPointer() {
 function updateAimLine(from, to) {
   if (aimLine) { aimLine.dispose(); aimLine = null; }
   if (!from || !to) return;
+  const y = ball.position.y + 0.05;
   aimLine = BABYLON.MeshBuilder.CreateLines("aim", {
-    points: [new BABYLON.Vector3(from.x, 0.12, from.z), new BABYLON.Vector3(to.x, 0.12, to.z)],
+    points: [new BABYLON.Vector3(from.x, y, from.z), new BABYLON.Vector3(to.x, y, to.z)],
   }, scene);
   aimLine.color = new BABYLON.Color3(1, 1, 0.4);
 }
@@ -432,18 +569,17 @@ scene.onPointerObservable.add((info) => {
     updateAimLine(null, null);
     if (!p) return;
 
-    let vx = -(p.x - aimStart.x);
-    let vz = -(p.z - aimStart.z);
-    const len = Math.sqrt(vx * vx + vz * vz);
+    let dx = -(p.x - aimStart.x);
+    let dz = -(p.z - aimStart.z);
+    const len = Math.sqrt(dx * dx + dz * dz);
     if (len < 0.3) return;
 
-    const power = Math.min(len / 8, 1) * MAX_POWER;
-    vx = (vx / len) * power;
-    vz = (vz / len) * power;
-
-    ballVel.x = vx;
-    ballVel.z = vz;
+    const speed = Math.min(len / 7, 1) * MAX_SPEED;
+    vel.x = (dx / len) * speed;
+    vel.z = (dz / len) * speed;
+    vel.y = 0;
     ballMoving = true;
+    accumulator = 0;
     strokes += 1;
     document.getElementById("strokes").textContent = String(strokes);
   }
@@ -457,8 +593,7 @@ function recordAndAdvance() {
   totalStrokes += strokes;
   document.getElementById("total").textContent = String(totalStrokes);
 
-  const isLast = currentHole === HOLES.length - 1;
-  if (isLast) showScorecard();
+  if (currentHole === HOLES.length - 1) showScorecard();
   else showHoleComplete();
 }
 
@@ -481,7 +616,6 @@ function showHoleComplete() {
   const btn = document.getElementById("msg-btn");
   btn.textContent = "Next Hole";
   document.getElementById("message").classList.remove("hidden");
-
   btn.onclick = () => {
     document.getElementById("message").classList.add("hidden");
     currentHole += 1;
@@ -494,39 +628,34 @@ function showScorecard() {
   const totalPar = HOLES.reduce((a, h) => a + h.par, 0);
   const diff = totalStrokes - totalPar;
   const diffTxt = diff === 0 ? "even par" : diff > 0 ? `+${diff}` : `${diff}`;
-
   document.getElementById("msg-title").textContent = "Round Complete!";
   document.getElementById("msg-body").textContent = `Total ${totalStrokes} · par ${totalPar} · ${diffTxt}`;
 
   let rows = "";
   for (let i = 0; i < HOLES.length; i++) {
-    const s = holeScores[i];
-    const p = HOLES[i].par;
-    const cls = s < p ? "under" : s > p ? "over" : "";
-    rows += `<tr><td>${i + 1}</td><td>${p}</td><td class="${cls}">${s}</td></tr>`;
+    const sc = holeScores[i], p = HOLES[i].par;
+    const cls = sc < p ? "under" : sc > p ? "over" : "";
+    rows += `<tr><td>${i + 1}</td><td>${p}</td><td class="${cls}">${sc}</td></tr>`;
   }
-  const sc = document.getElementById("scorecard");
-  sc.innerHTML = `<table><thead><tr><th>Hole</th><th>Par</th><th>You</th></tr></thead><tbody>${rows}
+  const card = document.getElementById("scorecard");
+  card.innerHTML = `<table><thead><tr><th>Hole</th><th>Par</th><th>You</th></tr></thead><tbody>${rows}
     <tr class="total"><td>Total</td><td>${totalPar}</td><td>${totalStrokes}</td></tr></tbody></table>`;
-  sc.classList.remove("hidden");
+  card.classList.remove("hidden");
 
   const btn = document.getElementById("msg-btn");
   btn.textContent = "Play Again";
   document.getElementById("message").classList.remove("hidden");
-
   btn.onclick = () => {
     document.getElementById("message").classList.add("hidden");
-    sc.classList.add("hidden");
-    currentHole = 0;
-    strokes = 0;
-    totalStrokes = 0;
+    card.classList.add("hidden");
+    currentHole = 0; strokes = 0; totalStrokes = 0;
     holeScores.fill(null);
     buildHole(currentHole);
   };
 }
 
 // ---------------------------------------------------------------------------
-// Boot — show overview behind the title screen
+// Boot
 // ---------------------------------------------------------------------------
 let gameStarted = false;
 buildHole(0);
@@ -536,6 +665,6 @@ document.getElementById("start-btn").onclick = () => {
   gameStarted = true;
 };
 
-scene.onBeforeRenderObservable.add(updateBall);
+scene.onBeforeRenderObservable.add(updatePhysics);
 engine.runRenderLoop(() => scene.render());
 window.addEventListener("resize", () => engine.resize());
