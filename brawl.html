@@ -345,7 +345,8 @@ const HEROES = {
     power: {
       type: "hammer", name: "Mjolnir", interval: 4.0,
       meleeDamage: 7, meleeInterval: 1.6,
-      hammerDamage: 11, boomerangRange: 180
+      hammerDamage: 11, boomerangRange: 180,
+      wallSlamDamage: 6, returnImpactDamage: 8
     }
   },
   hulk: {
@@ -512,6 +513,8 @@ function launchHammer(fighter, target) {
     phase: "outbound",
     life: 0,
     hitCd: 0,
+    wallHitCd: 0,
+    returnHitCd: 0,
     grabbed: null,
     hitOnce: false
   });
@@ -583,6 +586,8 @@ function updateProjectiles(dt) {
 
     if (proj.type === "hammer") {
       proj.hitCd = Math.max(0, proj.hitCd - dt);
+      proj.wallHitCd = Math.max(0, proj.wallHitCd - dt);
+      proj.returnHitCd = Math.max(0, proj.returnHitCd - dt);
       proj.life += dt;
       const owner = proj.owner;
       if (!owner || owner.hp <= 0) return;
@@ -607,6 +612,22 @@ function updateProjectiles(dt) {
       }
 
       updateGrabbedFighter(proj, dt);
+
+      if (proj.grabbed && proj.grabbed.hp > 0) {
+        const g = proj.grabbed;
+        const centerDist = Math.sqrt((g.x - CENTER) * (g.x - CENTER) + (g.y - CENTER) * (g.y - CENTER));
+        const atWall = centerDist >= ARENA_R - BALL_R - 0.5;
+
+        if (atWall && proj.wallHitCd <= 0) {
+          dealDamage(owner, g, power.wallSlamDamage, "hammer");
+          proj.wallHitCd = 0.35;
+        }
+
+        if (proj.phase === "returning" && dist(owner, g) <= BALL_R * 2 + 1 && proj.returnHitCd <= 0) {
+          dealDamage(owner, g, power.returnImpactDamage, "hammer");
+          proj.returnHitCd = 0.45;
+        }
+      }
 
       if (proj.phase === "returning" && dist(proj, owner) < BALL_R + HAMMER_R + 6) {
         catchHammer(owner, proj);
@@ -700,6 +721,7 @@ function tryTouchPowers(a, b) {
   [[a, b], [b, a]].forEach(([attacker, defender]) => {
     if (isFrozen(attacker) || defender.hp <= 0) return;
     const power = getHeroDef(attacker.heroId).power;
+    const holdingHammer = attacker.heroId !== "thor" || !hasProjectile(attacker, "hammer");
 
     if (power.type === "touch" && attacker.powerTimer >= power.interval) {
       dealDamage(attacker, defender, power.damage, "smash");
@@ -707,7 +729,7 @@ function tryTouchPowers(a, b) {
       return;
     }
 
-    if (power.meleeDamage && attacker.meleeTimer >= power.meleeInterval) {
+    if (power.meleeDamage && holdingHammer && attacker.meleeTimer >= power.meleeInterval) {
       dealDamage(attacker, defender, power.meleeDamage, "melee");
       attacker.meleeTimer = 0;
     }
