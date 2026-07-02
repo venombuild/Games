@@ -19,8 +19,10 @@
     cap: {
       id: "cap", name: "Captain America", abbr: "CA", color: "#1e4a8c", hp: 115,
       power: {
-        type: "shield", name: "Shield Throw", interval: 4.5, windup: 0.35,
-        shieldDamage: 6, shieldLife: 2.6, damageReduction: 0.5, buffTime: 5
+        type: "shield", name: "Shield Throw", interval: 4.0, windup: 0.35,
+        shieldDamage: 10, shieldLife: 2.6, damageReduction: 0.5, buffTime: 5,
+        holdDamage: 8, holdInterval: 1.4,
+        trailDamage: 5, trailLife: 2.8, trailRadius: 24, trailSpacing: 16
       }
     },
     thor: {
@@ -54,6 +56,42 @@
 
   function hasProjectile(owner, type) {
     return S.projectiles.some((p) => p.owner === owner && p.type === type);
+  }
+
+  function capHasShield(fighter) {
+    return fighter.heroId === "cap" && !hasProjectile(fighter, "shield");
+  }
+
+  function spawnShieldTrail(owner, x, y) {
+    const power = getHeroDef(owner.heroId).power;
+    S.shieldTrails.push({
+      x,
+      y,
+      r: power.trailRadius,
+      until: S.elapsed + power.trailLife,
+      owner,
+      hits: {}
+    });
+  }
+
+  function updateShieldTrails() {
+    S.shieldTrails = S.shieldTrails.filter((trail) => trail.until > S.elapsed);
+
+    S.shieldTrails.forEach((trail) => {
+      const power = getHeroDef(trail.owner.heroId).power;
+
+      S.fighters.forEach((f) => {
+        if (f === trail.owner || f.hp <= 0) return;
+        if (dist(trail, f) > trail.r + BALL_R) return;
+
+        const hitKey = f.player;
+        const nextHit = trail.hits[hitKey] || 0;
+        if (S.elapsed < nextHit) return;
+
+        dealDamage(trail.owner, f, power.trailDamage);
+        trail.hits[hitKey] = S.elapsed + 0.45;
+      });
+    });
   }
 
   function randomVelocity() {
@@ -132,7 +170,9 @@
       r: SHIELD_R,
       life: power.shieldLife,
       returning: false,
-      hitCd: 0
+      hitCd: 0,
+      lastTrailX: fighter.x,
+      lastTrailY: fighter.y
     });
   }
 
@@ -229,10 +269,18 @@
         proj.y += proj.vy * dt;
         if (!proj.returning) resolveProjectileWall(proj);
 
+        const power = getHeroDef(proj.owner.heroId).power;
+        const trailDx = proj.x - proj.lastTrailX;
+        const trailDy = proj.y - proj.lastTrailY;
+        if (Math.sqrt(trailDx * trailDx + trailDy * trailDy) >= power.trailSpacing) {
+          spawnShieldTrail(proj.owner, proj.x, proj.y);
+          proj.lastTrailX = proj.x;
+          proj.lastTrailY = proj.y;
+        }
+
         S.fighters.forEach((f) => {
           if (f === proj.owner || f.hp <= 0 || proj.hitCd > 0) return;
           if (dist(proj, f) <= proj.r + BALL_R) {
-            const power = getHeroDef(proj.owner.heroId).power;
             dealDamage(proj.owner, f, power.shieldDamage);
             proj.hitCd = 0.45;
           }
@@ -317,6 +365,12 @@
       if (power.type === "touch" && attacker.powerTimer >= power.interval) {
         dealDamage(attacker, defender, power.damage);
         attacker.powerTimer = 0;
+        return;
+      }
+
+      if (power.type === "shield" && capHasShield(attacker) && attacker.shieldBashTimer >= power.holdInterval) {
+        dealDamage(attacker, defender, power.holdDamage);
+        attacker.shieldBashTimer = 0;
         return;
       }
 
@@ -454,12 +508,16 @@
     updateProjectiles(dt);
     if (!S.running) return;
 
+    updateShieldTrails();
+    if (!S.running) return;
+
     [f1, f2].forEach((fighter) => {
       if (isFrozen(fighter)) return;
       const opponent = fighter === f1 ? f2 : f1;
       const power = getHeroDef(fighter.heroId).power;
       fighter.powerTimer += dt;
       if (power.meleeInterval) fighter.meleeTimer += dt;
+      if (power.holdInterval) fighter.shieldBashTimer += dt;
 
       if (power.type === "beam" && fighter.powerTimer >= power.interval && canStartBeam(fighter, opponent)) {
         startWindup(fighter, opponent, "beam");
@@ -489,6 +547,7 @@
       vy: v.vy,
       powerTimer: hero.power.interval * 0.5,
       meleeTimer: 0,
+      shieldBashTimer: 0,
       shield: 0,
       shieldBuff: null,
       grabbedBy: null,
@@ -505,7 +564,8 @@
       elapsed: 0,
       winner: null,
       fighters: [makeFighter(1, p1HeroId), makeFighter(2, p2HeroId)],
-      projectiles: []
+      projectiles: [],
+      shieldTrails: []
     };
 
     while (S.running && S.elapsed < MAX_BATTLE_TIME) {

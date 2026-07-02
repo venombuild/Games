@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-app-version="2026070206">
+<html lang="en" data-app-version="2026070207">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -8,7 +8,7 @@
 <meta http-equiv="Expires" content="0">
 <script>
 (function () {
-  var SITE_VERSION = document.documentElement.getAttribute("data-app-version") || "2026070206";
+  var SITE_VERSION = document.documentElement.getAttribute("data-app-version") || "2026070207";
   var STORAGE_KEY = "minigolf-version";
 
   function withVersion(file, version) {
@@ -336,8 +336,10 @@ const HEROES = {
   cap: {
     id: "cap", name: "Captain America", abbr: "CA", color: "#1e4a8c", hp: 115,
     power: {
-      type: "shield", name: "Shield Throw", interval: 4.5, windup: 0.35,
-      shieldDamage: 6, shieldLife: 2.6, damageReduction: 0.5, buffTime: 5
+      type: "shield", name: "Shield Throw", interval: 4.0, windup: 0.35,
+      shieldDamage: 10, shieldLife: 2.6, damageReduction: 0.5, buffTime: 5,
+      holdDamage: 8, holdInterval: 1.4,
+      trailDamage: 5, trailLife: 2.8, trailRadius: 24, trailSpacing: 16
     }
   },
   thor: {
@@ -365,6 +367,7 @@ const state = {
   log: [],
   effects: [],
   projectiles: [],
+  shieldTrails: [],
   running: false,
   animId: null,
   elapsed: 0
@@ -407,6 +410,81 @@ function hasProjectile(owner, type) {
 
 function getOpponentOf(fighter) {
   return state.fighters.find((f) => f.player !== fighter.player);
+}
+
+function capHasShield(fighter) {
+  return fighter.heroId === "cap" && !hasProjectile(fighter, "shield");
+}
+
+function getFacing(fighter) {
+  const speed = Math.sqrt(fighter.vx * fighter.vx + fighter.vy * fighter.vy);
+  if (speed > 8) return { nx: fighter.vx / speed, ny: fighter.vy / speed };
+  const opp = getOpponentOf(fighter);
+  if (opp) {
+    const d = dist(fighter, opp) || 1;
+    return { nx: (opp.x - fighter.x) / d, ny: (opp.y - fighter.y) / d };
+  }
+  return { nx: 1, ny: 0 };
+}
+
+function spawnShieldTrail(owner, x, y) {
+  const power = getHeroDef(owner.heroId).power;
+  state.shieldTrails.push({
+    x,
+    y,
+    r: power.trailRadius,
+    until: state.elapsed + power.trailLife,
+    owner,
+    hits: {}
+  });
+}
+
+function updateShieldTrails(dt) {
+  state.shieldTrails = state.shieldTrails.filter((trail) => trail.until > state.elapsed);
+
+  state.shieldTrails.forEach((trail) => {
+    const power = getHeroDef(trail.owner.heroId).power;
+
+    state.fighters.forEach((f) => {
+      if (f === trail.owner || f.hp <= 0) return;
+      if (dist(trail, f) > trail.r + BALL_R) return;
+
+      const hitKey = f.player;
+      const nextHit = trail.hits[hitKey] || 0;
+      if (state.elapsed < nextHit) return;
+
+      dealDamage(trail.owner, f, power.trailDamage, "shield");
+      trail.hits[hitKey] = state.elapsed + 0.45;
+    });
+  });
+}
+
+function drawPatriotField(x, y, r, alpha) {
+  ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(232,25,44,0.55)";
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.68, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255,255,255,0.5)";
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.38, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(30,74,140,0.65)";
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+function drawHeldShield(fighter, facing) {
+  const sx = fighter.x + facing.nx * (BALL_R + 5);
+  const sy = fighter.y + facing.ny * (BALL_R + 5);
+  drawPatriotField(sx, sy, 12, 0.95);
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(sx, sy, 12, 0, Math.PI * 2);
+  ctx.stroke();
 }
 
 function resolveProjectileWall(proj, speed = PROJECTILE_SPEED) {
@@ -492,7 +570,9 @@ function launchShield(fighter, target) {
     life: power.shieldLife,
     returning: false,
     hitCd: 0,
-    bounces: 0
+    bounces: 0,
+    lastTrailX: fighter.x,
+    lastTrailY: fighter.y
   });
   addLog("<strong>Shield thrown!</strong>");
 }
@@ -574,10 +654,18 @@ function updateProjectiles(dt) {
       proj.y += proj.vy * dt;
       if (!proj.returning) resolveProjectileWall(proj);
 
+      const power = getHeroDef(proj.owner.heroId).power;
+      const trailDx = proj.x - proj.lastTrailX;
+      const trailDy = proj.y - proj.lastTrailY;
+      if (Math.sqrt(trailDx * trailDx + trailDy * trailDy) >= power.trailSpacing) {
+        spawnShieldTrail(proj.owner, proj.x, proj.y);
+        proj.lastTrailX = proj.x;
+        proj.lastTrailY = proj.y;
+      }
+
       state.fighters.forEach((f) => {
         if (f === proj.owner || f.hp <= 0 || proj.hitCd > 0) return;
         if (dist(proj, f) <= proj.r + BALL_R) {
-          const power = getHeroDef(proj.owner.heroId).power;
           dealDamage(proj.owner, f, power.shieldDamage, "shield");
           proj.hitCd = 0.45;
         }
@@ -729,6 +817,12 @@ function tryTouchPowers(a, b) {
       return;
     }
 
+    if (power.type === "shield" && capHasShield(attacker) && attacker.shieldBashTimer >= power.holdInterval) {
+      dealDamage(attacker, defender, power.holdDamage, "shield");
+      attacker.shieldBashTimer = 0;
+      return;
+    }
+
     if (power.meleeDamage && holdingHammer && attacker.meleeTimer >= power.meleeInterval) {
       dealDamage(attacker, defender, power.meleeDamage, "melee");
       attacker.meleeTimer = 0;
@@ -845,14 +939,19 @@ function drawArena() {
     }
   });
 
+  state.shieldTrails.forEach((trail) => {
+    const lifeLeft = trail.until - state.elapsed;
+    const fade = Math.min(1, lifeLeft / 0.6);
+    drawPatriotField(trail.x, trail.y, trail.r, 0.28 * fade);
+  });
+
   state.projectiles.forEach((proj) => {
     if (proj.type === "shield") {
-      ctx.beginPath();
-      ctx.arc(proj.x, proj.y, proj.r, 0, Math.PI * 2);
-      ctx.fillStyle = proj.returning ? "#5cf0ff" : "#1e4a8c";
-      ctx.fill();
+      drawPatriotField(proj.x, proj.y, proj.r + 2, proj.returning ? 0.85 : 1);
       ctx.strokeStyle = "#fff";
       ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(proj.x, proj.y, proj.r + 2, 0, Math.PI * 2);
       ctx.stroke();
       ctx.fillStyle = "#fff";
       ctx.font = "bold 11px Bebas Neue, sans-serif";
@@ -887,6 +986,9 @@ function drawArena() {
 
   state.fighters.forEach((f) => {
     const hero = getHeroDef(f.heroId);
+    const facing = getFacing(f);
+
+    if (capHasShield(f)) drawHeldShield(f, facing);
 
     if (f.windup) {
       const pulse = 1 + Math.sin(state.elapsed * 14) * 0.08;
@@ -1000,12 +1102,16 @@ function battleStep(dt) {
   updateProjectiles(dt);
   if (!state.running) return;
 
+  updateShieldTrails(dt);
+  if (!state.running) return;
+
   [f1, f2].forEach((fighter) => {
     if (isFrozen(fighter)) return;
     const opponent = fighter === f1 ? f2 : f1;
     const power = getHeroDef(fighter.heroId).power;
     fighter.powerTimer += dt;
     if (power.meleeInterval) fighter.meleeTimer += dt;
+    if (power.holdInterval) fighter.shieldBashTimer += dt;
 
     if (power.type === "beam" && fighter.powerTimer >= power.interval && canStartBeam(fighter, opponent)) {
       startWindup(fighter, opponent, "beam");
@@ -1029,6 +1135,7 @@ function startBattleLoop() {
   state.elapsed = 0;
   state.effects = [];
   state.projectiles = [];
+  state.shieldTrails = [];
   let last = performance.now();
 
   if (state.animId) cancelAnimationFrame(state.animId);
@@ -1051,6 +1158,7 @@ function initBattle() {
   const v2 = randomVelocity();
 
   state.projectiles = [];
+  state.shieldTrails = [];
   state.fighters = [
     {
       player: 1, name: "Player 1", heroId: state.p1Hero,
@@ -1058,7 +1166,7 @@ function initBattle() {
       x: CENTER - 65, y: CENTER - 40,
       vx: v1.vx, vy: v1.vy,
       powerTimer: h1.power.interval * 0.5,
-      meleeTimer: 0, shield: 0, shieldBuff: null, pull: null, grabbedBy: null,
+      meleeTimer: 0, shieldBashTimer: 0, shield: 0, shieldBuff: null, pull: null, grabbedBy: null,
       windup: null, recover: 0, savedVx: 0, savedVy: 0
     },
     {
@@ -1067,7 +1175,7 @@ function initBattle() {
       x: CENTER + 65, y: CENTER + 40,
       vx: v2.vx, vy: v2.vy,
       powerTimer: h2.power.interval * 0.5,
-      meleeTimer: 0, shield: 0, shieldBuff: null, pull: null, grabbedBy: null,
+      meleeTimer: 0, shieldBashTimer: 0, shield: 0, shieldBuff: null, pull: null, grabbedBy: null,
       windup: null, recover: 0, savedVx: 0, savedVy: 0
     }
   ];
