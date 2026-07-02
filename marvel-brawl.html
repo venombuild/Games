@@ -263,6 +263,7 @@ const HAMMER_R = 15;
 const PROJECTILE_SPEED = 210;
 
 const HAMMER_SPEED = 220;
+const HAMMER_MIN_OUTBOUND_TIME = 0.42;
 
 const HEROES = {
   ironman: {
@@ -281,7 +282,7 @@ const HEROES = {
     power: {
       type: "hammer", name: "Mjolnir", interval: 4.0,
       meleeDamage: 7, meleeInterval: 1.6,
-      hammerDamage: 11, boomerangRange: 105
+      hammerDamage: 11, boomerangRange: 180
     }
   },
   hulk: {
@@ -446,6 +447,7 @@ function launchHammer(fighter, target) {
     vy: (dy / d) * HAMMER_SPEED,
     r: HAMMER_R,
     phase: "outbound",
+    life: 0,
     hitCd: 0,
     grabbed: null,
     hitOnce: false
@@ -465,13 +467,18 @@ function catchHammer(fighter, proj) {
 function updateGrabbedFighter(proj, dt) {
   if (!proj.grabbed || proj.grabbed.hp <= 0) return;
   const f = proj.grabbed;
-  const dx = proj.x - f.x;
-  const dy = proj.y - f.y;
-  const pull = Math.min(1, 14 * dt);
+  const speed = Math.sqrt(proj.vx * proj.vx + proj.vy * proj.vy) || 1;
+  const nx = proj.vx / speed;
+  const ny = proj.vy / speed;
+  const anchorX = proj.x - nx * (BALL_R + proj.r - 4);
+  const anchorY = proj.y - ny * (BALL_R + proj.r - 4);
+  const dx = anchorX - f.x;
+  const dy = anchorY - f.y;
+  const pull = Math.min(1, 20 * dt);
   f.x += dx * pull;
   f.y += dy * pull;
-  f.vx = proj.vx * 0.35;
-  f.vy = proj.vy * 0.35;
+  f.vx = proj.vx * 0.55;
+  f.vy = proj.vy * 0.55;
   f.grabbedBy = proj;
   resolveCircleWall(f);
 }
@@ -513,6 +520,7 @@ function updateProjectiles(dt) {
 
     if (proj.type === "hammer") {
       proj.hitCd = Math.max(0, proj.hitCd - dt);
+      proj.life += dt;
       const owner = proj.owner;
       if (!owner || owner.hp <= 0) return;
 
@@ -531,7 +539,8 @@ function updateProjectiles(dt) {
 
       if (proj.phase === "outbound") {
         resolveProjectileWall(proj, HAMMER_SPEED);
-        if (dist(proj, owner) >= power.boomerangRange) proj.phase = "returning";
+        const farEnough = dist(proj, owner) >= power.boomerangRange;
+        if (farEnough && proj.life >= HAMMER_MIN_OUTBOUND_TIME) proj.phase = "returning";
       }
 
       updateGrabbedFighter(proj, dt);
