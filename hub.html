@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-app-version="2026070301">
+<html lang="en" data-app-version="2026070302">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -8,7 +8,7 @@
 <meta http-equiv="Expires" content="0">
 <script>
 (function () {
-  var SITE_VERSION = document.documentElement.getAttribute("data-app-version") || "2026070301";
+  var SITE_VERSION = document.documentElement.getAttribute("data-app-version") || "2026070302";
   var STORAGE_KEY = "minigolf-version";
 
   function withVersion(file, version) {
@@ -642,6 +642,38 @@ body.wrong-flash { animation: flash-red 0.4s ease-out; }
   letter-spacing: 1px;
 }
 
+.update-note {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid #2a2a2a;
+  border-left: 3px solid var(--gold);
+  background: rgba(245, 166, 35, 0.06);
+  text-align: left;
+  max-width: 100%;
+}
+
+.update-note-label {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: var(--gold);
+  margin-bottom: 4px;
+}
+
+.update-note-text {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--sub);
+}
+
+.update-note-version {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: #666;
+  margin-top: 6px;
+}
+
 .game-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -739,6 +771,11 @@ body.wrong-flash { animation: flash-red 0.4s ease-out; }
       <p class="menu-eyebrow">Venombuild</p>
       <h1 class="menu-title">GAMES</h1>
       <p class="menu-sub">Pick a game — more coming soon</p>
+      <div class="update-note" id="update-note">
+        <div class="update-note-label">Latest Update</div>
+        <div class="update-note-text" id="update-note-text">Loading update info...</div>
+        <div class="update-note-version" id="update-note-version"></div>
+      </div>
     </div>
     <div class="game-grid" id="game-grid"></div>
   </div>
@@ -881,7 +918,7 @@ body.wrong-flash { animation: flash-red 0.4s ease-out; }
   </div>
 </div>
 
-<script src="brawl-sim.js?v=2026070301"></script>
+<script src="brawl-sim.js?v=2026070302"></script>
 <script>
 const ALL_CHARACTERS = [
   "Spider-Man","Iron Man","Captain America","Thor","Black Widow","Hulk","Hawkeye",
@@ -953,7 +990,25 @@ function showMenu() {
   state.secretVisible = false;
   state.secretRevealedOnce = false;
   closeGuessModal();
+  loadUpdateNote();
   show("screen-menu");
+}
+
+function loadUpdateNote() {
+  const textEl = document.getElementById("update-note-text");
+  const versionEl = document.getElementById("update-note-version");
+  if (!textEl || !versionEl) return;
+
+  fetch("./version.json?_=" + Date.now(), { cache: "no-store" })
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      textEl.textContent = data.update || "Games hub is up to date.";
+      versionEl.textContent = data.version ? "Build " + data.version : "";
+    })
+    .catch(function () {
+      textEl.textContent = "Could not load update info.";
+      versionEl.textContent = window.MINIGOLF_VERSION ? "Build " + window.MINIGOLF_VERSION : "";
+    });
 }
 
 function showTitle() {
