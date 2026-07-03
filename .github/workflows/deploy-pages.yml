@@ -30,16 +30,7 @@ jobs:
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: |
-            index.html
-            hub.html
-            brawl.html
-            marvel-brawl.html
-            brawl-sim.js
-            sw.js
-            version.json
-            README.md
-            .nojekyll
+          path: .
 
       - name: Deploy to GitHub Pages
         id: deployment
