@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-app-version="2026070302">
+<html lang="en" data-app-version="2026070303">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
@@ -8,7 +8,7 @@
 <meta http-equiv="Expires" content="0">
 <script>
 (function () {
-  var SITE_VERSION = document.documentElement.getAttribute("data-app-version") || "2026070302";
+  var SITE_VERSION = document.documentElement.getAttribute("data-app-version") || "2026070303";
   var STORAGE_KEY = "minigolf-version";
 
   function withVersion(file, version) {
@@ -487,6 +487,71 @@ function drawHeldShield(fighter, facing) {
   ctx.stroke();
 }
 
+function thorHasHammer(fighter) {
+  return fighter.heroId === "thor" && !hasProjectile(fighter, "hammer");
+}
+
+function drawMjolnir(x, y, angle, scale, returning) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+
+  if (returning) {
+    ctx.shadowColor = "rgba(155,130,255,0.9)";
+    ctx.shadowBlur = 12;
+  }
+
+  const s = scale;
+
+  ctx.fillStyle = "#5a3d22";
+  ctx.strokeStyle = "#2f2012";
+  ctx.lineWidth = 1.2 * s;
+  ctx.beginPath();
+  ctx.roundRect(-2.2 * s, -2 * s, 4.4 * s, 18 * s, 1.5 * s);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#3d2818";
+  ctx.fillRect(-3 * s, 14 * s, 6 * s, 3 * s);
+
+  const headGrad = ctx.createLinearGradient(-14 * s, -10 * s, 14 * s, 4 * s);
+  headGrad.addColorStop(0, returning ? "#e8e0ff" : "#d5dae3");
+  headGrad.addColorStop(0.45, returning ? "#b6a0ff" : "#9aa3b0");
+  headGrad.addColorStop(1, returning ? "#7a62e8" : "#5f6775");
+  ctx.fillStyle = headGrad;
+  ctx.strokeStyle = returning ? "#ddd6ff" : "#c8ced8";
+  ctx.lineWidth = 1.5 * s;
+  ctx.beginPath();
+  ctx.roundRect(-14 * s, -12 * s, 28 * s, 11 * s, 2 * s);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(255,255,255,0.35)";
+  ctx.fillRect(-11 * s, -10.5 * s, 22 * s, 3 * s);
+
+  ctx.strokeStyle = returning ? "rgba(200,180,255,0.5)" : "rgba(255,255,255,0.2)";
+  ctx.lineWidth = 1 * s;
+  ctx.beginPath();
+  ctx.moveTo(-8 * s, -6 * s);
+  ctx.lineTo(8 * s, -6 * s);
+  ctx.stroke();
+
+  ctx.fillStyle = returning ? "#9b82ff" : "#6b4ce6";
+  ctx.beginPath();
+  ctx.arc(0, -6.5 * s, 2.2 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+function drawHeldHammer(fighter, facing) {
+  const hx = fighter.x + facing.nx * (BALL_R + 10);
+  const hy = fighter.y + facing.ny * (BALL_R + 10);
+  const angle = Math.atan2(facing.ny, facing.nx) + Math.PI * 0.55;
+  drawMjolnir(hx, hy, angle, 0.78, false);
+}
+
 function resolveProjectileWall(proj, speed = PROJECTILE_SPEED) {
   const dx = proj.x - CENTER;
   const dy = proj.y - CENTER;
@@ -953,25 +1018,11 @@ function drawArena() {
       ctx.beginPath();
       ctx.arc(proj.x, proj.y, proj.r + 2, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.fillStyle = "#fff";
-      ctx.font = "bold 11px Bebas Neue, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("S", proj.x, proj.y + 1);
     }
     if (proj.type === "hammer") {
-      ctx.beginPath();
-      ctx.arc(proj.x, proj.y, proj.r, 0, Math.PI * 2);
-      ctx.fillStyle = proj.phase === "returning" ? "#9b82ff" : "#6b4ce6";
-      ctx.fill();
-      ctx.strokeStyle = "#ddd";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.fillStyle = "#fff";
-      ctx.font = "bold 11px Bebas Neue, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("M", proj.x, proj.y + 1);
+      const speed = Math.sqrt(proj.vx * proj.vx + proj.vy * proj.vy) || 1;
+      const angle = Math.atan2(proj.vy, proj.vx) + Math.PI * 0.55;
+      drawMjolnir(proj.x, proj.y, angle, 1, proj.phase === "returning");
 
       if (proj.owner && proj.phase === "outbound") {
         ctx.strokeStyle = "rgba(107,76,230,0.12)";
@@ -989,6 +1040,7 @@ function drawArena() {
     const facing = getFacing(f);
 
     if (capHasShield(f)) drawHeldShield(f, facing);
+    if (thorHasHammer(f)) drawHeldHammer(f, facing);
 
     if (f.windup) {
       const pulse = 1 + Math.sin(state.elapsed * 14) * 0.08;
@@ -1021,12 +1073,6 @@ function drawArena() {
       ctx.lineTo(f.x, f.y);
       ctx.stroke();
     }
-
-    ctx.font = "bold 14px Bebas Neue, sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "#fff";
-    ctx.fillText(hero.abbr, f.x, f.y + 1);
   });
 }
 
