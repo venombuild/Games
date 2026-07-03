@@ -1,4 +1,4 @@
 {
-  "version": "2026070304",
-  "update": "Added automatic GitHub Pages deploy on every push to main."
+  "version": "2026070305",
+  "update": "Thor hammer drag capped at 3 wall hits; releases target if they miss Thor on return."
 }

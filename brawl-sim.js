@@ -8,6 +8,8 @@
   const PROJECTILE_SPEED = 210;
   const HAMMER_SPEED = 220;
   const HAMMER_MIN_OUTBOUND_TIME = 0.42;
+  const HAMMER_MAX_WALL_HITS = 3;
+  const HAMMER_RETURN_GRAB_RELEASE_DIST = 78;
   const MAX_BATTLE_TIME = 120;
   const DT = 0.033;
 
@@ -194,17 +196,22 @@
       hitCd: 0,
       wallHitCd: 0,
       returnHitCd: 0,
+      wallHits: 0,
+      returnImpactDealt: false,
       grabbed: null
     });
     fighter.powerTimer = 0;
   }
 
   function catchHammer(fighter, proj) {
-    if (proj.grabbed) {
-      proj.grabbed.grabbedBy = null;
-      proj.grabbed = null;
-    }
+    releaseHammerGrab(proj);
     S.projectiles = S.projectiles.filter((p) => p !== proj);
+  }
+
+  function releaseHammerGrab(proj) {
+    if (!proj.grabbed) return;
+    proj.grabbed.grabbedBy = null;
+    proj.grabbed = null;
   }
 
   function resolveCircleWall(ball) {
@@ -321,15 +328,26 @@
           const g = proj.grabbed;
           const centerDist = Math.sqrt((g.x - CENTER) * (g.x - CENTER) + (g.y - CENTER) * (g.y - CENTER));
           const atWall = centerDist >= ARENA_R - BALL_R - 0.5;
+          const returnImpactRange = BALL_R * 2 + 1;
 
           if (atWall && proj.wallHitCd <= 0) {
             dealDamage(owner, g, power.wallSlamDamage);
             proj.wallHitCd = 0.35;
+            proj.wallHits += 1;
+            if (proj.wallHits >= HAMMER_MAX_WALL_HITS) releaseHammerGrab(proj);
           }
 
-          if (proj.phase === "returning" && dist(owner, g) <= BALL_R * 2 + 1 && proj.returnHitCd <= 0) {
+          if (proj.grabbed && proj.phase === "returning" && dist(owner, g) <= returnImpactRange && proj.returnHitCd <= 0) {
             dealDamage(owner, g, power.returnImpactDamage);
             proj.returnHitCd = 0.45;
+            proj.returnImpactDealt = true;
+          }
+
+          if (proj.grabbed && proj.phase === "returning" && !proj.returnImpactDealt) {
+            const hammerHomeDist = dist(proj, owner);
+            if (hammerHomeDist < HAMMER_RETURN_GRAB_RELEASE_DIST && dist(owner, g) > returnImpactRange) {
+              releaseHammerGrab(proj);
+            }
           }
         }
 
