@@ -15,30 +15,30 @@
 
   const HEROES = {
     ironman: {
-      id: "ironman", name: "Iron Man", abbr: "IM", color: "#c41e2a", hp: 106,
-      power: { type: "beam", name: "Unibeam", damage: 13, range: 156, interval: 3.1, windup: 0.4 }
+      id: "ironman", name: "Iron Man", abbr: "IM", color: "#c41e2a", hp: 108,
+      power: { type: "beam", name: "Unibeam", damage: 14, range: 160, interval: 2.95, windup: 0.4 }
     },
     cap: {
       id: "cap", name: "Captain America", abbr: "CA", color: "#1e4a8c", hp: 115,
       power: {
-        type: "shield", name: "Shield Throw", interval: 4.4, windup: 0.35,
-        shieldDamage: 7, shieldLife: 2.3, damageReduction: 0.5, buffTime: 5,
+        type: "shield", name: "Shield Throw", interval: 4.1, windup: 0.35,
+        shieldDamage: 8, shieldLife: 2.3, damageReduction: 0.5, buffTime: 5,
         holdDamage: 5, holdInterval: 2.4,
-        trailDamage: 1, trailLife: 1.2, trailRadius: 18, trailSpacing: 28
+        trailDamage: 1.2, trailLife: 1.2, trailRadius: 18, trailSpacing: 28
       }
     },
     thor: {
-      id: "thor", name: "Thor", abbr: "TH", color: "#6b4ce6", hp: 104,
+      id: "thor", name: "Thor", abbr: "TH", color: "#6b4ce6", hp: 102,
       power: {
-        type: "hammer", name: "Mjolnir", interval: 4.4,
-        meleeDamage: 5, meleeInterval: 2.0,
-        hammerDamage: 9, boomerangRange: 165,
-        wallSlamDamage: 4, returnImpactDamage: 4
+        type: "hammer", name: "Mjolnir", interval: 4.6,
+        meleeDamage: 4, meleeInterval: 2.3,
+        hammerDamage: 7, boomerangRange: 156,
+        wallSlamDamage: 3, returnImpactDamage: 3
       }
     },
     hulk: {
       id: "hulk", name: "Hulk", abbr: "HK", color: "#3d8b37", hp: 135,
-      power: { type: "touch", name: "Smash", damage: 19, interval: 3.5 }
+      power: { type: "touch", name: "Smash", damage: 21, interval: 3.18 }
     }
   };
 
