@@ -1,71 +1,8 @@
 <!DOCTYPE html>
-<html lang="en" data-app-version="2026070401">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
-<script>
-(function () {
-  var SITE_VERSION = document.documentElement.getAttribute("data-app-version") || "2026070401";
-  var STORAGE_KEY = "minigolf-version";
-
-  function withVersion(file, version) {
-    return file + "?v=" + version;
-  }
-
-  function reloadToVersion(version) {
-    var q = new URLSearchParams(window.location.search);
-    if (q.get("v") === version) return false;
-    q.set("v", version);
-    window.location.replace(window.location.pathname + "?" + q.toString() + window.location.hash);
-    return true;
-  }
-
-  if (reloadToVersion(SITE_VERSION)) return;
-
-  var saved = localStorage.getItem(STORAGE_KEY);
-  if (saved && saved !== SITE_VERSION) {
-    localStorage.setItem(STORAGE_KEY, SITE_VERSION);
-    if ("caches" in window) {
-      caches.keys().then(function (keys) {
-        return Promise.all(keys.map(function (key) { return caches.delete(key); }));
-      }).finally(function () { window.location.reload(); });
-      return;
-    }
-    window.location.reload();
-    return;
-  }
-  localStorage.setItem(STORAGE_KEY, SITE_VERSION);
-
-  window.MINIGOLF_VERSION = SITE_VERSION;
-  window.minigolfPage = function (file) {
-    return withVersion(file, SITE_VERSION);
-  };
-
-  function pollVersion() {
-    fetch("./version.json?_=" + Date.now(), { cache: "no-store" })
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        if (data.version && data.version !== SITE_VERSION) {
-          localStorage.removeItem(STORAGE_KEY);
-          reloadToVersion(data.version);
-        }
-      })
-      .catch(function () {});
-  }
-
-  document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) pollVersion();
-  });
-  window.setInterval(pollVersion, 20000);
-
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register(withVersion("sw.js", SITE_VERSION), { updateViaCache: "none" }).catch(function () {});
-  }
-})();
-</script>
 <title>Games</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -918,7 +855,7 @@ body.wrong-flash { animation: flash-red 0.4s ease-out; }
   </div>
 </div>
 
-<script src="brawl-sim.js?v=2026070401"></script>
+<script src="brawl-sim.js"></script>
 <script>
 const ALL_CHARACTERS = [
   "Spider-Man","Iron Man","Captain America","Thor","Black Widow","Hulk","Hawkeye",
@@ -1007,7 +944,7 @@ function loadUpdateNote() {
     })
     .catch(function () {
       textEl.textContent = "Could not load update info.";
-      versionEl.textContent = window.MINIGOLF_VERSION ? "Build " + window.MINIGOLF_VERSION : "";
+      versionEl.textContent = "";
     });
 }
 
@@ -1044,7 +981,7 @@ function renderMenu() {
 
 function openGame(id) {
   if (id === "guess-who") showTitle();
-  if (id === "marvel-brawl") window.location.href = minigolfPage("brawl.html");
+  if (id === "marvel-brawl") window.location.href = "brawl.html";
 }
 
 function showSetup() {

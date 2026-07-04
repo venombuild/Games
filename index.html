@@ -3,27 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
-<title>Loading Game Hub...</title>
-<script>
-(function () {
-  var fallback = "2026070401";
-  var target = "hub.html";
-
-  function go(version) {
-    window.location.replace(target + "?v=" + version);
-  }
-
-  fetch("version.json?_=" + Date.now(), { cache: "no-store" })
-    .then(function (res) { return res.json(); })
-    .then(function (data) { go(data.version || fallback); })
-    .catch(function () { go(fallback); });
-})();
-</script>
+<meta http-equiv="refresh" content="0; url=hub.html">
+<title>Games</title>
+<script>window.location.replace("hub.html");</script>
 </head>
 <body style="margin:0;background:#0a0a0a;color:#7a7a7a;font-family:sans-serif;text-align:center;padding:48px 16px;">
-  Loading latest game hub...
+  <a href="hub.html" style="color:#F5A623;">Open Games</a>
 </body>
 </html>

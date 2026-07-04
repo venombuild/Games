@@ -1,71 +1,8 @@
 <!DOCTYPE html>
-<html lang="en" data-app-version="2026070401">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
-<script>
-(function () {
-  var SITE_VERSION = document.documentElement.getAttribute("data-app-version") || "2026070401";
-  var STORAGE_KEY = "minigolf-version";
-
-  function withVersion(file, version) {
-    return file + "?v=" + version;
-  }
-
-  function reloadToVersion(version) {
-    var q = new URLSearchParams(window.location.search);
-    if (q.get("v") === version) return false;
-    q.set("v", version);
-    window.location.replace(window.location.pathname + "?" + q.toString() + window.location.hash);
-    return true;
-  }
-
-  if (reloadToVersion(SITE_VERSION)) return;
-
-  var saved = localStorage.getItem(STORAGE_KEY);
-  if (saved && saved !== SITE_VERSION) {
-    localStorage.setItem(STORAGE_KEY, SITE_VERSION);
-    if ("caches" in window) {
-      caches.keys().then(function (keys) {
-        return Promise.all(keys.map(function (key) { return caches.delete(key); }));
-      }).finally(function () { window.location.reload(); });
-      return;
-    }
-    window.location.reload();
-    return;
-  }
-  localStorage.setItem(STORAGE_KEY, SITE_VERSION);
-
-  window.MINIGOLF_VERSION = SITE_VERSION;
-  window.minigolfPage = function (file) {
-    return withVersion(file, SITE_VERSION);
-  };
-
-  function pollVersion() {
-    fetch("./version.json?_=" + Date.now(), { cache: "no-store" })
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        if (data.version && data.version !== SITE_VERSION) {
-          localStorage.removeItem(STORAGE_KEY);
-          reloadToVersion(data.version);
-        }
-      })
-      .catch(function () {});
-  }
-
-  document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) pollVersion();
-  });
-  window.setInterval(pollVersion, 20000);
-
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register(withVersion("sw.js", SITE_VERSION), { updateViaCache: "none" }).catch(function () {});
-  }
-})();
-</script>
 <title>Marvel Brawl</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -201,9 +138,19 @@ body::before {
 .handoff-sub { color: var(--sub); font-size: 14px; line-height: 1.6; margin-bottom: 28px; }
 .handoff-sub strong { color: var(--gold); }
 
-.battle-wrap { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 12px; }
+.battle-wrap {
+  width: 100%; max-width: 420px;
+  display: flex; flex-direction: column;
+  gap: 12px;
+  min-height: calc(100vh - 42px);
+  justify-content: space-between;
+}
 
-.hud-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* Tabletop layout: lay the phone flat, each player sits at one end.
+   P2's HUD (top) is flipped 180° to face the opponent across the table. */
+.battle-center { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+.hud-slot { width: 100%; }
+.hud-top { transform: rotate(180deg); }
 
 .fighter-hud {
   background: var(--mid);
@@ -296,12 +243,15 @@ body::before {
 
 <div class="screen hidden" id="screen-battle" style="justify-content:flex-start;padding-top:14px;">
   <div class="battle-wrap">
-    <div class="hud-row" id="hud-row"></div>
-    <div class="arena-wrap">
-      <canvas id="arena-canvas" width="340" height="340"></canvas>
+    <div class="hud-slot hud-top" id="hud-top"></div>
+    <div class="battle-center">
+      <div class="arena-wrap">
+        <canvas id="arena-canvas" width="340" height="340"></canvas>
+      </div>
+      <div class="status-banner" id="status-banner">FIGHT!</div>
+      <div class="battle-log" id="battle-log"></div>
     </div>
-    <div class="status-banner" id="status-banner">FIGHT!</div>
-    <div class="battle-log" id="battle-log"></div>
+    <div class="hud-slot hud-bottom" id="hud-bottom"></div>
   </div>
 </div>
 
@@ -953,29 +903,36 @@ function endBattle(winner) {
   show("screen-win");
 }
 
+function renderFighterHud(f) {
+  const h = getHeroDef(f.heroId);
+  const pct = Math.max(0, (f.hp / f.maxHp) * 100);
+  const charge = Math.min(100, (f.powerTimer / h.power.interval) * 100);
+
+  const div = document.createElement("div");
+  div.className = "fighter-hud";
+  div.style.setProperty("--fighter-color", h.color);
+  div.innerHTML =
+    '<div class="fighter-hud-player">Player ' + f.player + "</div>" +
+    '<div class="fighter-hud-name">' + h.abbr + " · " + h.name + "</div>" +
+    '<div class="hp-bar"><div class="hp-fill" style="width:' + pct + '%"></div></div>' +
+    '<div class="hp-text">' + Math.ceil(f.hp) + " HP</div>" +
+    (f.shieldBuff && f.shieldBuff.until > state.elapsed
+      ? '<div style="font-size:10px;color:#5cf0ff;margin-top:2px;">Shield active</div>'
+      : "") +
+    '<div class="power-meter"><div class="power-fill" style="width:' + charge + '%"></div></div>';
+  return div;
+}
+
 function updateHud() {
-  const hud = document.getElementById("hud-row");
-  hud.innerHTML = "";
+  const top = document.getElementById("hud-top");
+  const bottom = document.getElementById("hud-bottom");
+  top.innerHTML = "";
+  bottom.innerHTML = "";
 
-  state.fighters.forEach((f) => {
-    const h = getHeroDef(f.heroId);
-    const pct = Math.max(0, (f.hp / f.maxHp) * 100);
-    const charge = Math.min(100, (f.powerTimer / h.power.interval) * 100);
-
-    const div = document.createElement("div");
-    div.className = "fighter-hud";
-    div.style.setProperty("--fighter-color", h.color);
-    div.innerHTML =
-      '<div class="fighter-hud-player">Player ' + f.player + "</div>" +
-      '<div class="fighter-hud-name">' + h.abbr + " · " + h.name + "</div>" +
-      '<div class="hp-bar"><div class="hp-fill" style="width:' + pct + '%"></div></div>' +
-      '<div class="hp-text">' + Math.ceil(f.hp) + " HP</div>" +
-      (f.shieldBuff && f.shieldBuff.until > state.elapsed
-        ? '<div style="font-size:10px;color:#5cf0ff;margin-top:2px;">Shield active</div>'
-        : "") +
-      '<div class="power-meter"><div class="power-fill" style="width:' + charge + '%"></div></div>';
-    hud.appendChild(div);
-  });
+  const p1 = getFighter(1);
+  const p2 = getFighter(2);
+  if (p2) top.appendChild(renderFighterHud(p2));
+  if (p1) bottom.appendChild(renderFighterHud(p1));
 }
 
 function drawArena() {
@@ -1307,8 +1264,8 @@ function confirmPick() {
   }
 }
 
-document.getElementById("btn-hub").addEventListener("click", () => { window.location.href = minigolfPage("hub.html"); });
-document.getElementById("btn-win-hub").addEventListener("click", () => { window.location.href = minigolfPage("hub.html"); });
+document.getElementById("btn-hub").addEventListener("click", () => { window.location.href = "hub.html"; });
+document.getElementById("btn-win-hub").addEventListener("click", () => { window.location.href = "hub.html"; });
 document.getElementById("btn-fight").addEventListener("click", () => showPickScreen(1));
 document.getElementById("btn-back-title").addEventListener("click", () => show("screen-title"));
 document.getElementById("btn-confirm-pick").addEventListener("click", confirmPick);

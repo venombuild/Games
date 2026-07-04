@@ -86,14 +86,11 @@ The **Games** home screen (`hub.html`) includes:
 ## Project Structure
 
 ```
-index.html          Entry redirect → hub.html (with cache-bust version)
-hub.html            Games home, Guess Who, settings & simulator
-brawl.html          Marvel Brawl game
-marvel-brawl.html   Redirect stub → brawl.html
-brawl-sim.js        Headless simulator (shared hero stats with brawl.html)
-version.json        Build version + latest update note
-sw.js               Service worker for mobile cache clearing
-.github/workflows/  GitHub Actions auto-deploy to Pages
+index.html      Entry redirect → hub.html
+hub.html        Games home, Guess Who, settings & simulator
+brawl.html      Marvel Brawl game
+brawl-sim.js    Headless simulator (shared hero stats with brawl.html)
+version.json    Build version + latest update note
 ```
 
 There is no build step, bundler, or framework. Each game is self-contained HTML with inline CSS/JS.
@@ -109,27 +106,6 @@ python -m http.server 8000
 ```
 
 Then visit http://localhost:8000
-
----
-
-## Deployment
-
-Pushes to `main` automatically deploy to GitHub Pages via GitHub Actions (`.github/workflows/deploy-pages.yml`).
-
-Repo setting required: **Settings → Pages → Source: GitHub Actions**
-
-Check deploy status in the repo **Actions** tab.
-
----
-
-## Mobile Cache Busting
-
-The site auto-updates on mobile without a hard refresh:
-
-- Versioned URLs (`?v=BUILD`) on all pages and assets
-- `version.json` polled every 20 seconds and when the tab becomes visible
-- Service worker clears stale caches when the build changes
-- **Latest Update** box on the Games home confirms which build is live
 
 ---
 
