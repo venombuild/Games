@@ -87,9 +87,8 @@ The **Games** home screen (`hub.html`) includes:
 
 ```
 index.html      Entry redirect → hub.html
-hub.html        Games home, Guess Who, settings & simulator
-brawl.html      Marvel Brawl game
-brawl-sim.js    Headless simulator (shared hero stats with brawl.html)
+hub.html        Games home + Guess Who + Marvel Brawl + settings & simulator
+brawl-sim.js    Headless simulator (shared hero stats with the Marvel Brawl engine)
 version.json    Build version + latest update note
 ```
 
@@ -125,7 +124,7 @@ for (const [id, w] of Object.entries(r.wins)) {
 "
 ```
 
-Hero stats live in both `brawl.html` and `brawl-sim.js` — keep them in sync when balancing.
+Hero stats live in both the Marvel Brawl engine (in `hub.html`) and `brawl-sim.js` — keep them in sync when balancing.
 
 ---
 

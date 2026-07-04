@@ -1,4 +1,4 @@
 {
-  "version": "2026070402",
-  "update": "Marvel Brawl now has a lay-flat tabletop mode — set the phone down and each player sees their own health at their end. Also fixed a mobile caching bug that made the game open in a nested browser view."
+  "version": "2026070403",
+  "update": "Fixed Marvel Brawl opening in a nested browser view on phones — it now loads right inside the Games hub (no page jump), just like Guess Who. Lay-flat tabletop mode is still here too."
 }
