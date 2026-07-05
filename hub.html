@@ -1623,6 +1623,26 @@ const HEROES = {
   hulk: {
     id: "hulk", name: "Hulk", abbr: "HK", color: "#3d8b37", hp: 135,
     power: { type: "touch", name: "Smash", damage: 21, interval: 3.18 }
+  },
+  spiderman: {
+    id: "spiderman", name: "Spider-Man", abbr: "SM", color: "#c81e28", hp: 100, speedMult: 1.35,
+    power: { type: "web", name: "Web Barrage", interval: 3.6, webs: 4, webSpeed: 205, webDmg: 5, webLife: 2.6, webR: 8, slow: 1.6 }
+  },
+  rocket: {
+    id: "rocket", name: "Rocket", abbr: "RK", color: "#9a6a33", hp: 96, radius: 12,
+    power: { type: "blaster", name: "Blaster & Groot", interval: 1.7, bulletDmg: 6, bulletSpeed: 275, bulletR: 5, bulletLife: 1.6, grootInterval: 9 }
+  },
+  cyclops: {
+    id: "cyclops", name: "Cyclops", abbr: "CY", color: "#2166a8", hp: 112,
+    power: { type: "spinbeam", name: "Optic Blast", interval: 1, range: 120, rotSpeed: 1.7, damage: 3, hitCd: 0.24 }
+  },
+  invisiblewoman: {
+    id: "invisiblewoman", name: "Invisible Woman", abbr: "IW", color: "#39a4c4", hp: 108,
+    power: { type: "force", name: "Force Field", interval: 2.6, range: 138, damage: 5, phaseInterval: 7.5, phaseDuration: 2.4 }
+  },
+  namor: {
+    id: "namor", name: "Namor", abbr: "NM", color: "#2fa07a", hp: 112,
+    power: { type: "trident", name: "Trident", interval: 3.4, dmg: 10, tridentSpeed: 245, tridentR: 7, tridentLife: 2.4, stun: 0.75 }
   }
 };
 
@@ -1637,6 +1657,7 @@ const state = {
   effects: [],
   projectiles: [],
   shieldTrails: [],
+  summons: [],
   running: false,
   animId: null,
   elapsed: 0,
@@ -2003,6 +2024,7 @@ function resolveProjectileWall(proj, speed = PROJECTILE_SPEED) {
 
 function dealDamage(attacker, defender, amount, effectType) {
   if (!state.running || defender.hp <= 0) return;
+  if (defender.invulnUntil && defender.invulnUntil > state.elapsed) return;
 
   let damage = amount;
 
@@ -2019,11 +2041,20 @@ function dealDamage(attacker, defender, amount, effectType) {
   defender.hp = Math.max(0, defender.hp - damage);
 
   const hero = getHeroDef(attacker.heroId);
-  const labels = { smash: "Smash", melee: "Strike", shield: "Shield", hammer: "Mjolnir", beam: hero.power.name };
+  const labels = {
+    smash: "Smash", melee: "Strike", shield: "Shield", hammer: "Mjolnir", beam: hero.power.name,
+    web: "Web", bullet: "Blaster", trident: "Trident", optic: "Optic Blast", force: "Force Blast", groot: "Groot"
+  };
   addLog("<strong>" + hero.abbr + " " + (labels[effectType] || "Hit") + "</strong> → " + damage + " dmg");
 
   if (effectType === "smash") {
     state.effects.push({ type: "smash", until: state.elapsed + 0.3, x: defender.x, y: defender.y, r: 38 });
+  }
+  if (effectType === "web" || effectType === "bullet" || effectType === "trident" || effectType === "groot") {
+    state.effects.push({ type: "spark", until: state.elapsed + 0.22, x: defender.x, y: defender.y, r: 20 });
+  }
+  if (effectType === "optic") {
+    state.effects.push({ type: "spark", until: state.elapsed + 0.14, x: defender.x, y: defender.y, r: 14 });
   }
   if (effectType === "beam") {
     state.effects.push({ type: "beam", until: state.elapsed + 0.35, x1: attacker.x, y1: attacker.y, x2: defender.x, y2: defender.y });
@@ -2163,7 +2194,7 @@ function updateProjectiles(dt) {
 
       state.fighters.forEach((f) => {
         if (f === proj.owner || f.hp <= 0 || proj.hitCd > 0) return;
-        if (dist(proj, f) <= proj.r + BALL_R) {
+        if (dist(proj, f) <= proj.r + (f.radius || BALL_R)) {
           dealDamage(proj.owner, f, power.shieldDamage, "shield");
           proj.hitCd = 0.45;
         }
@@ -2202,7 +2233,7 @@ function updateProjectiles(dt) {
       if (proj.grabbed && proj.grabbed.hp > 0) {
         const g = proj.grabbed;
         const atWall = g._wallHit;
-        const returnImpactRange = BALL_R * 2 + 1;
+        const returnImpactRange = (owner.radius || BALL_R) + (g.radius || BALL_R) + 1;
 
         if (atWall && proj.wallHitCd <= 0) {
           dealDamage(owner, g, power.wallSlamDamage, "hammer");
@@ -2232,7 +2263,7 @@ function updateProjectiles(dt) {
 
       state.fighters.forEach((f) => {
         if (f === owner || f.hp <= 0 || proj.hitCd > 0 || f.grabbedBy) return;
-        if (dist(proj, f) <= proj.r + BALL_R) {
+        if (dist(proj, f) <= proj.r + (f.radius || BALL_R)) {
           dealDamage(owner, f, power.hammerDamage, "hammer");
           proj.grabbed = f;
           f.grabbedBy = proj;
@@ -2240,28 +2271,85 @@ function updateProjectiles(dt) {
         }
       });
     }
+
+    if (proj.type === "web") {
+      proj.life -= dt;
+      proj.x += proj.vx * dt;
+      proj.y += proj.vy * dt;
+      confineCircle(proj, proj.r, proj.speed);
+      state.fighters.forEach((f) => {
+        if (f === proj.owner || f.hp <= 0 || proj.dead) return;
+        if (dist(proj, f) <= proj.r + (f.radius || BALL_R)) {
+          dealDamage(proj.owner, f, proj.dmg, "web");
+          applySlow(f, proj.slow);
+          proj.dead = true;
+        }
+      });
+      if (proj.life <= 0) proj.dead = true;
+    }
+
+    if (proj.type === "bullet") {
+      proj.life -= dt;
+      proj.x += proj.vx * dt;
+      proj.y += proj.vy * dt;
+      if (confineCircle(proj, proj.r, proj.speed)) proj.wallHits += 1;
+      state.fighters.forEach((f) => {
+        if (f === proj.owner || f.hp <= 0 || proj.dead) return;
+        if (dist(proj, f) <= proj.r + (f.radius || BALL_R)) {
+          dealDamage(proj.owner, f, proj.dmg, "bullet");
+          proj.dead = true;
+        }
+      });
+      if (proj.life <= 0 || proj.wallHits >= 2) proj.dead = true;
+    }
+
+    if (proj.type === "trident") {
+      proj.life -= dt;
+      proj.spin += dt * 9;
+      proj.x += proj.vx * dt;
+      proj.y += proj.vy * dt;
+      confineCircle(proj, proj.r, proj.speed);
+      state.fighters.forEach((f) => {
+        if (f === proj.owner || f.hp <= 0 || proj.dead) return;
+        if (dist(proj, f) <= proj.r + (f.radius || BALL_R)) {
+          dealDamage(proj.owner, f, proj.dmg, "trident");
+          stunFighter(f, proj.stun);
+          proj.dead = true;
+        }
+      });
+      if (proj.life <= 0) proj.dead = true;
+    }
   });
 
   state.projectiles = state.projectiles.filter((p) => {
+    if (p.dead) return false;
     if (p.type === "shield" && p.returning && p.owner.hp <= 0) return false;
     return true;
   });
 }
 
-function randomVelocity() {
+function randomVelocity(speed) {
+  const s = speed || BALL_SPEED;
   const angle = Math.random() * Math.PI * 2;
-  return { vx: Math.cos(angle) * BALL_SPEED, vy: Math.sin(angle) * BALL_SPEED };
+  return { vx: Math.cos(angle) * s, vy: Math.sin(angle) * s };
+}
+
+/* Effective movement speed of a fighter (fast heroes, temporary slows). */
+function fighterSpeed(f) {
+  let s = f.speed || BALL_SPEED;
+  if (f.slowUntil && f.slowUntil > state.elapsed) s *= 0.5;
+  return s;
 }
 
 function resolveCircleWall(ball) {
-  confineCircle(ball, BALL_R, BALL_SPEED);
+  confineCircle(ball, ball.radius || BALL_R, fighterSpeed(ball));
 }
 
 function resolveBallCollision(a, b) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const d = Math.sqrt(dx * dx + dy * dy);
-  const minD = BALL_R * 2;
+  const minD = (a.radius || BALL_R) + (b.radius || BALL_R);
   let touched = false;
 
   if (d < minD && d > 0) {
@@ -2287,10 +2375,12 @@ function resolveBallCollision(a, b) {
 
       const sa = Math.sqrt(a.vx * a.vx + a.vy * a.vy) || 1;
       const sb = Math.sqrt(b.vx * b.vx + b.vy * b.vy) || 1;
-      a.vx = (a.vx / sa) * BALL_SPEED;
-      a.vy = (a.vy / sa) * BALL_SPEED;
-      b.vx = (b.vx / sb) * BALL_SPEED;
-      b.vy = (b.vy / sb) * BALL_SPEED;
+      const spA = fighterSpeed(a);
+      const spB = fighterSpeed(b);
+      a.vx = (a.vx / sa) * spA;
+      a.vy = (a.vy / sa) * spA;
+      b.vx = (b.vx / sb) * spB;
+      b.vy = (b.vy / sb) * spB;
     }
   }
 
@@ -2351,6 +2441,136 @@ function fireBeam(attacker, defender) {
   const power = getHeroDef(attacker.heroId).power;
   dealDamage(attacker, defender, power.damage, "beam");
   attacker.powerTimer = 0;
+}
+
+/* ---- New hero powers ------------------------------------------------------- */
+
+function applySlow(f, dur) {
+  f.slowUntil = state.elapsed + dur;
+  const s = fighterSpeed(f);
+  const cur = Math.hypot(f.vx, f.vy) || 1;
+  f.vx = (f.vx / cur) * s;
+  f.vy = (f.vy / cur) * s;
+}
+
+function stunFighter(f, dur) {
+  if (f.invulnUntil && f.invulnUntil > state.elapsed) return;
+  f.savedVx = f.vx;
+  f.savedVy = f.vy;
+  f.vx = 0;
+  f.vy = 0;
+  f.recover = Math.max(f.recover || 0, dur);
+}
+
+function hasSummon(owner, type) {
+  return state.summons.some((s) => s.owner === owner && s.type === type);
+}
+
+/* Spider-Man: fling four webs that ricochet off the walls and slow on hit. */
+function launchWebs(fighter) {
+  const power = getHeroDef(fighter.heroId).power;
+  const base = Math.random() * Math.PI * 2;
+  for (let i = 0; i < power.webs; i++) {
+    const a = base + (i * Math.PI * 2) / power.webs;
+    state.projectiles.push({
+      type: "web", owner: fighter,
+      x: fighter.x, y: fighter.y,
+      vx: Math.cos(a) * power.webSpeed, vy: Math.sin(a) * power.webSpeed,
+      r: power.webR, speed: power.webSpeed, dmg: power.webDmg, slow: power.slow,
+      life: power.webLife
+    });
+  }
+  addLog("<strong>SM Web Barrage</strong> — webs everywhere!");
+}
+
+/* Rocket: quick blaster bolt aimed at the opponent. */
+function fireBullet(fighter, opponent) {
+  const power = getHeroDef(fighter.heroId).power;
+  const dx = opponent.x - fighter.x, dy = opponent.y - fighter.y;
+  const d = Math.hypot(dx, dy) || 1;
+  state.projectiles.push({
+    type: "bullet", owner: fighter,
+    x: fighter.x, y: fighter.y,
+    vx: (dx / d) * power.bulletSpeed, vy: (dy / d) * power.bulletSpeed,
+    r: power.bulletR, speed: power.bulletSpeed, dmg: power.bulletDmg,
+    life: power.bulletLife, wallHits: 0
+  });
+}
+
+/* Rocket: call in Groot, a big, durable bruiser that chases the enemy. */
+function spawnGroot(fighter) {
+  state.summons.push({
+    type: "groot", owner: fighter,
+    x: fighter.x, y: fighter.y, vx: 0, vy: 0,
+    radius: 28, speed: 95, dmg: 7, hitCd: 0,
+    until: state.elapsed + 7.5
+  });
+  addLog("<strong>RK</strong> calls in <strong>Groot!</strong>");
+}
+
+/* Cyclops: continuous optic beam that sweeps in a circle. */
+function spinBeamHit(f, opp, power) {
+  if (!opp || opp.hp <= 0) return;
+  const ex = f.x + Math.cos(f.beamAngle) * power.range;
+  const ey = f.y + Math.sin(f.beamAngle) * power.range;
+  const c = closestOnSeg(opp.x, opp.y, f.x, f.y, ex, ey);
+  const d = Math.hypot(opp.x - c.x, opp.y - c.y);
+  if (d <= (opp.radius || BALL_R) + 5 && f.beamCd <= 0) {
+    dealDamage(f, opp, power.damage, "optic");
+    f.beamCd = power.hitCd;
+  }
+}
+
+/* Invisible Woman: shove the opponent away with a force blast. */
+function forceBlast(f, opp, power) {
+  if (!opp || opp.hp <= 0) return false;
+  const dx = opp.x - f.x, dy = opp.y - f.y;
+  const d = Math.hypot(dx, dy) || 1;
+  if (d > power.range) return false;
+  dealDamage(f, opp, power.damage, "force");
+  const push = fighterSpeed(opp) * 1.9;
+  opp.vx = (dx / d) * push;
+  opp.vy = (dy / d) * push;
+  state.effects.push({ type: "force", until: state.elapsed + 0.35, x: f.x, y: f.y, r: power.range });
+  return true;
+}
+
+/* Namor: hurl a trident that stuns on impact. */
+function launchTrident(fighter, opponent) {
+  const power = getHeroDef(fighter.heroId).power;
+  const dx = opponent.x - fighter.x, dy = opponent.y - fighter.y;
+  const d = Math.hypot(dx, dy) || 1;
+  state.projectiles.push({
+    type: "trident", owner: fighter,
+    x: fighter.x, y: fighter.y,
+    vx: (dx / d) * power.tridentSpeed, vy: (dy / d) * power.tridentSpeed,
+    r: power.tridentR, speed: power.tridentSpeed, dmg: power.dmg, stun: power.stun,
+    life: power.tridentLife, spin: 0
+  });
+  addLog("<strong>NM</strong> hurls the <strong>Trident!</strong>");
+}
+
+function updateSummons(dt) {
+  state.summons = state.summons.filter((s) => s.until > state.elapsed);
+  state.summons.forEach((s) => {
+    s.hitCd = Math.max(0, s.hitCd - dt);
+    const enemy = getOpponentOf(s.owner);
+    if (!enemy || enemy.hp <= 0) return;
+    const dx = enemy.x - s.x, dy = enemy.y - s.y;
+    const d = Math.hypot(dx, dy) || 1;
+    s.vx = (dx / d) * s.speed;
+    s.vy = (dy / d) * s.speed;
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    confineCircle(s, s.radius, s.speed);
+    if (d <= s.radius + (enemy.radius || BALL_R) && s.hitCd <= 0) {
+      dealDamage(s.owner, enemy, s.dmg, "groot");
+      const push = fighterSpeed(enemy) * 1.6;
+      enemy.vx = (-dx / d) * push;
+      enemy.vy = (-dy / d) * push;
+      s.hitCd = 0.7;
+    }
+  });
 }
 
 function endBattle(winner) {
@@ -2427,6 +2647,22 @@ function drawArena() {
       ctx.arc(fx.x, fx.y, fx.r, 0, Math.PI * 2);
       ctx.stroke();
     }
+    if (fx.type === "spark") {
+      const life = (fx.until - state.elapsed) / 0.22;
+      ctx.strokeStyle = "rgba(255,235,150," + Math.max(0, life) + ")";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(fx.x, fx.y, fx.r * (1.2 - life * 0.4), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    if (fx.type === "force") {
+      const life = (fx.until - state.elapsed) / 0.35;
+      ctx.strokeStyle = "rgba(90,190,230," + Math.max(0, life) * 0.8 + ")";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(fx.x, fx.y, fx.r * (1 - life * 0.7), 0, Math.PI * 2);
+      ctx.stroke();
+    }
   });
 
   state.shieldTrails.forEach((trail) => {
@@ -2458,34 +2694,127 @@ function drawArena() {
         ctx.stroke();
       }
     }
+    if (proj.type === "web") {
+      ctx.fillStyle = "rgba(240,240,240,0.9)";
+      ctx.beginPath();
+      ctx.arc(proj.x, proj.y, proj.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(120,120,120,0.9)";
+      ctx.lineWidth = 1;
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(proj.x, proj.y);
+        ctx.lineTo(proj.x + Math.cos(a) * proj.r, proj.y + Math.sin(a) * proj.r);
+        ctx.stroke();
+      }
+    }
+    if (proj.type === "bullet") {
+      ctx.fillStyle = "#ffcf4d";
+      ctx.shadowColor = "#ff9a2a";
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(proj.x, proj.y, proj.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+    if (proj.type === "trident") {
+      ctx.save();
+      ctx.translate(proj.x, proj.y);
+      ctx.rotate(proj.spin);
+      ctx.strokeStyle = "#5fe0b0";
+      ctx.fillStyle = "#2fa07a";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, -10);
+      ctx.lineTo(0, 10);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-5, -6);
+      ctx.lineTo(-5, -12);
+      ctx.moveTo(0, -8);
+      ctx.lineTo(0, -14);
+      ctx.moveTo(5, -6);
+      ctx.lineTo(5, -12);
+      ctx.stroke();
+      ctx.restore();
+    }
+  });
+
+  state.summons.forEach((s) => {
+    if (s.type === "groot") {
+      const remain = s.until - state.elapsed;
+      ctx.globalAlpha = remain < 1 ? Math.max(0.2, remain) : 1;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.radius + 2, 0, Math.PI * 2);
+      ctx.strokeStyle = "#3d2a12";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+      ctx.fillStyle = "#6b4a24";
+      ctx.fill();
+      ctx.fillStyle = "#e8e2c0";
+      ctx.beginPath();
+      ctx.arc(s.x - 8, s.y - 6, 3, 0, Math.PI * 2);
+      ctx.arc(s.x + 8, s.y - 6, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
   });
 
   state.fighters.forEach((f) => {
     const hero = getHeroDef(f.heroId);
     const facing = getFacing(f);
+    const R = f.radius || BALL_R;
+
+    if (hero.power.type === "spinbeam" && f.hp > 0) {
+      const ex = f.x + Math.cos(f.beamAngle) * hero.power.range;
+      const ey = f.y + Math.sin(f.beamAngle) * hero.power.range;
+      ctx.strokeStyle = "rgba(232,25,44,0.85)";
+      ctx.lineWidth = 4;
+      ctx.shadowColor = "#E8192C";
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.moveTo(f.x, f.y);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
 
     if (capHasShield(f)) drawHeldShield(f, facing);
     if (thorHasHammer(f)) drawHeldHammer(f, facing);
 
+    const phased = f.invulnUntil && f.invulnUntil > state.elapsed;
+    if (phased) ctx.globalAlpha = 0.3;
+
     if (f.windup) {
       const pulse = 1 + Math.sin(state.elapsed * 14) * 0.08;
       ctx.beginPath();
-      ctx.arc(f.x, f.y, BALL_R + 10 * pulse, 0, Math.PI * 2);
+      ctx.arc(f.x, f.y, R + 10 * pulse, 0, Math.PI * 2);
       ctx.strokeStyle = "rgba(245,166,35,0.7)";
       ctx.lineWidth = 2;
       ctx.stroke();
     }
 
     ctx.beginPath();
-    ctx.arc(f.x, f.y, BALL_R + 3, 0, Math.PI * 2);
+    ctx.arc(f.x, f.y, R + 3, 0, Math.PI * 2);
     ctx.strokeStyle = f.player === 1 ? "#E8192C" : "#1e6fd4";
     ctx.lineWidth = 3;
     ctx.stroke();
 
     ctx.beginPath();
-    ctx.arc(f.x, f.y, BALL_R, 0, Math.PI * 2);
+    ctx.arc(f.x, f.y, R, 0, Math.PI * 2);
     ctx.fillStyle = hero.color;
     ctx.fill();
+
+    if (f.slowUntil && f.slowUntil > state.elapsed) {
+      ctx.strokeStyle = "rgba(230,230,230,0.7)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, R + 6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
     const speed = Math.sqrt(f.vx * f.vx + f.vy * f.vy);
     if (speed > 5) {
@@ -2498,6 +2827,8 @@ function drawArena() {
       ctx.lineTo(f.x, f.y);
       ctx.stroke();
     }
+
+    if (phased) ctx.globalAlpha = 1;
   });
 }
 
@@ -2539,13 +2870,14 @@ function updateFighterAction(fighter, dt) {
       const sx = fighter.savedVx || 0;
       const sy = fighter.savedVy || 0;
       const speed = Math.sqrt(sx * sx + sy * sy);
+      const target = fighterSpeed(fighter);
       if (speed < 10) {
-        const v = randomVelocity();
+        const v = randomVelocity(target);
         fighter.vx = v.vx;
         fighter.vy = v.vy;
       } else {
-        fighter.vx = (sx / speed) * BALL_SPEED;
-        fighter.vy = (sy / speed) * BALL_SPEED;
+        fighter.vx = (sx / speed) * target;
+        fighter.vy = (sy / speed) * target;
       }
     }
   }
@@ -2573,6 +2905,9 @@ function battleStep(dt) {
   updateProjectiles(dt);
   if (!state.running) return;
 
+  updateSummons(dt);
+  if (!state.running) return;
+
   updateShieldTrails(dt);
   if (!state.running) return;
 
@@ -2595,6 +2930,46 @@ function battleStep(dt) {
     if (power.type === "hammer" && fighter.powerTimer >= power.interval && !hasProjectile(fighter, "hammer")) {
       launchHammer(fighter, opponent);
     }
+
+    if (power.type === "web" && fighter.powerTimer >= power.interval) {
+      launchWebs(fighter);
+      fighter.powerTimer = 0;
+    }
+
+    if (power.type === "blaster") {
+      if (fighter.powerTimer >= power.interval) {
+        fireBullet(fighter, opponent);
+        fighter.powerTimer = 0;
+      }
+      fighter.grootTimer += dt;
+      if (fighter.grootTimer >= power.grootInterval && !hasSummon(fighter, "groot")) {
+        spawnGroot(fighter);
+        fighter.grootTimer = 0;
+      }
+    }
+
+    if (power.type === "spinbeam") {
+      fighter.beamAngle += power.rotSpeed * dt;
+      fighter.beamCd = Math.max(0, fighter.beamCd - dt);
+      spinBeamHit(fighter, opponent, power);
+    }
+
+    if (power.type === "force") {
+      if (fighter.powerTimer >= power.interval) {
+        if (forceBlast(fighter, opponent, power)) fighter.powerTimer = 0;
+      }
+      fighter.phaseTimer += dt;
+      if (fighter.phaseTimer >= power.phaseInterval) {
+        fighter.invulnUntil = state.elapsed + power.phaseDuration;
+        fighter.phaseTimer = 0;
+        addLog("<strong>IW</strong> phases out — immune!");
+      }
+    }
+
+    if (power.type === "trident" && fighter.powerTimer >= power.interval && !hasProjectile(fighter, "trident")) {
+      launchTrident(fighter, opponent);
+      fighter.powerTimer = 0;
+    }
   });
 
   updateHud();
@@ -2607,6 +2982,7 @@ function startBattleLoop() {
   state.effects = [];
   state.projectiles = [];
   state.shieldTrails = [];
+  state.summons = [];
   let last = performance.now();
 
   if (state.animId) cancelAnimationFrame(state.animId);
@@ -2625,32 +3001,39 @@ function startBattleLoop() {
 function initBattle() {
   const h1 = getHeroDef(state.p1Hero);
   const h2 = getHeroDef(state.p2Hero);
-  const v1 = randomVelocity();
-  const v2 = randomVelocity();
+  const speed1 = BALL_SPEED * (h1.speedMult || 1);
+  const speed2 = BALL_SPEED * (h2.speedMult || 1);
+  const v1 = randomVelocity(speed1);
+  const v2 = randomVelocity(speed2);
 
   state.arena = pickArena();
   const sp = state.arena.spawn;
 
   state.projectiles = [];
   state.shieldTrails = [];
+  state.summons = [];
   state.fighters = [
     {
       player: 1, name: "Player 1", heroId: state.p1Hero,
       hp: h1.hp, maxHp: h1.hp,
       x: sp[0].x, y: sp[0].y,
       vx: v1.vx, vy: v1.vy,
+      speed: speed1, radius: h1.radius || BALL_R,
       powerTimer: h1.power.interval * 0.5,
       meleeTimer: 0, shieldBashTimer: 0, shield: 0, shieldBuff: null, pull: null, grabbedBy: null,
-      windup: null, recover: 0, savedVx: 0, savedVy: 0
+      windup: null, recover: 0, savedVx: 0, savedVy: 0,
+      slowUntil: 0, invulnUntil: 0, beamAngle: Math.random() * Math.PI * 2, beamCd: 0, grootTimer: 0, phaseTimer: 0
     },
     {
       player: 2, name: "Player 2", heroId: state.p2Hero,
       hp: h2.hp, maxHp: h2.hp,
       x: sp[1].x, y: sp[1].y,
       vx: v2.vx, vy: v2.vy,
+      speed: speed2, radius: h2.radius || BALL_R,
       powerTimer: h2.power.interval * 0.5,
       meleeTimer: 0, shieldBashTimer: 0, shield: 0, shieldBuff: null, pull: null, grabbedBy: null,
-      windup: null, recover: 0, savedVx: 0, savedVy: 0
+      windup: null, recover: 0, savedVx: 0, savedVy: 0,
+      slowUntil: 0, invulnUntil: 0, beamAngle: Math.random() * Math.PI * 2, beamCd: 0, grootTimer: 0, phaseTimer: 0
     }
   ];
 
