@@ -1626,23 +1626,23 @@ const HEROES = {
   },
   spiderman: {
     id: "spiderman", name: "Spider-Man", abbr: "SM", color: "#c81e28", hp: 100, speedMult: 1.35,
-    power: { type: "web", name: "Web Barrage", interval: 3.6, webs: 4, webSpeed: 205, webDmg: 5, webLife: 2.6, webR: 8, slow: 1.6 }
+    power: { type: "web", name: "Web Barrage", interval: 3.6, webs: 4, webSpeed: 205, webDmg: 5, webLife: 3.2, webR: 20, slow: 1.6 }
   },
   rocket: {
     id: "rocket", name: "Rocket", abbr: "RK", color: "#9a6a33", hp: 96, radius: 12,
-    power: { type: "blaster", name: "Blaster & Groot", interval: 1.7, bulletDmg: 6, bulletSpeed: 275, bulletR: 5, bulletLife: 1.6, grootInterval: 9 }
+    power: { type: "blaster", name: "Blaster & Groot", interval: 1.4, bulletDmg: 6, bulletSpeed: 275, bulletR: 5, bulletLife: 1.6, grootInterval: 8, grootHp: 55 }
   },
   cyclops: {
     id: "cyclops", name: "Cyclops", abbr: "CY", color: "#2166a8", hp: 112,
-    power: { type: "spinbeam", name: "Optic Blast", interval: 1, range: 120, rotSpeed: 1.7, damage: 3, hitCd: 0.24 }
+    power: { type: "spinbeam", name: "Optic Blast", interval: 1, rotSpeed: 1.25, width: 14, damage: 3, hitCd: 0.28 }
   },
   invisiblewoman: {
     id: "invisiblewoman", name: "Invisible Woman", abbr: "IW", color: "#39a4c4", hp: 108,
-    power: { type: "force", name: "Force Field", interval: 2.6, range: 138, damage: 5, phaseInterval: 7.5, phaseDuration: 2.4 }
+    power: { type: "force", name: "Force Field", interval: 2.6, range: 150, damage: 5, phaseInterval: 7.5, phaseDuration: 2.4 }
   },
   namor: {
     id: "namor", name: "Namor", abbr: "NM", color: "#2fa07a", hp: 112,
-    power: { type: "trident", name: "Trident", interval: 3.4, dmg: 10, tridentSpeed: 245, tridentR: 7, tridentLife: 2.4, stun: 0.75 }
+    power: { type: "trident", name: "Trident", interval: 2.8, dmg: 10, tridentSpeed: 245, tridentR: 7, stun: 0.75, maxActive: 8 }
   }
 };
 
@@ -1810,7 +1810,7 @@ function confineCircle(obj, r, speed) {
   return hit;
 }
 
-function drawArenaFloor() {
+function arenaPath() {
   const a = state.arena;
   ctx.beginPath();
   if (a.kind === "circle") {
@@ -1819,6 +1819,134 @@ function drawArenaFloor() {
     a.verts.forEach((v, i) => (i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)));
     ctx.closePath();
   }
+}
+
+/* Cast a ray from (x,y) and return where it hits the arena boundary. */
+function rayToArenaBoundary(x, y, angle) {
+  const a = state.arena;
+  const dx = Math.cos(angle), dy = Math.sin(angle);
+  let best = 400;
+
+  if (a.kind === "circle") {
+    const ox = x - a.cx, oy = y - a.cy;
+    const b = 2 * (ox * dx + oy * dy);
+    const c = ox * ox + oy * oy - a.radius * a.radius;
+    const disc = b * b - 4 * c;
+    if (disc >= 0) {
+      const t = (-b + Math.sqrt(disc)) / 2;
+      if (t > 0.5) best = t;
+    }
+  } else {
+    for (const e of a.edges) {
+      const ex = e.px + (-e.ny) * 500, ey = e.py + e.nx * 500;
+      const sx = e.px, sy = e.py;
+      const denom = dx * (sy - ey) - dy * (sx - ex);
+      if (Math.abs(denom) < 0.0001) continue;
+      const t = ((sx - x) * (sy - ey) - (sy - y) * (sx - ex)) / denom;
+      const u = ((sx - x) * dy - (sy - y) * dx) / denom;
+      if (t > 0.5 && u >= 0 && u <= 1 && t < best) best = t;
+    }
+  }
+  return { x: x + dx * best, y: y + dy * best, dist: best };
+}
+
+/* Detailed orb-web: radial anchors, spiral capture threads, sticky hub, silk trail. */
+function drawSpiderWeb(x, y, r, rot, alpha, vx, vy) {
+  const spokes = 10;
+  const turns = 2.4;
+  const pts = [];
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rot);
+
+  for (let i = 0; i < spokes; i++) {
+    const a = (i / spokes) * Math.PI * 2;
+    pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r, a: a });
+  }
+
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  ctx.strokeStyle = "rgba(210,210,225," + alpha * 0.55 + ")";
+  ctx.lineWidth = 1.6;
+  for (const p of pts) {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = "rgba(245,245,255," + alpha + ")";
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  for (let i = 0; i <= spokes * turns; i++) {
+    const t = i / (spokes * turns);
+    const rad = t * r;
+    const ang = t * turns * Math.PI * 2;
+    const px = Math.cos(ang) * rad, py = Math.sin(ang) * rad;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(230,230,245," + alpha * 0.85 + ")";
+  ctx.lineWidth = 0.9;
+  for (let ring = 1; ring <= 4; ring++) {
+    const rr = (ring / 4) * r * 0.92;
+    ctx.beginPath();
+    for (let i = 0; i <= spokes; i++) {
+      const a = (i / spokes) * Math.PI * 2 + ring * 0.08;
+      const wobble = 1 + Math.sin(ring * 2.1 + i * 0.7) * 0.04;
+      const px = Math.cos(a) * rr * wobble, py = Math.sin(a) * rr * wobble;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = "rgba(255,255,255," + alpha * 0.7 + ")";
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  for (let i = 0; i <= spokes; i++) {
+    const a = (i / spokes) * Math.PI * 2;
+    const px = Math.cos(a) * r, py = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(255,255,255," + alpha * 0.35 + ")";
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255," + alpha * 0.6 + ")";
+  ctx.beginPath();
+  ctx.arc(-r * 0.03, -r * 0.03, r * 0.05, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+
+  if (vx != null && vy != null) {
+    const sp = Math.hypot(vx, vy);
+    if (sp > 20) {
+      const nx = -vx / sp, ny = -vy / sp;
+      ctx.strokeStyle = "rgba(230,230,245," + alpha * 0.45 + ")";
+      ctx.lineWidth = 1;
+      for (let s = 1; s <= 3; s++) {
+        const tx = x + nx * r * 0.35 * s;
+        const ty = y + ny * r * 0.35 * s;
+        ctx.beginPath();
+        ctx.moveTo(tx - ny * 4, ty + nx * 4);
+        ctx.lineTo(tx + ny * 4, ty - nx * 4);
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+function drawArenaFloor() {
+  const a = state.arena;
+  arenaPath();
   const grad = ctx.createRadialGradient(CENTER, CENTER, 20, CENTER, CENTER, 165);
   grad.addColorStop(0, "#1e1e1e");
   grad.addColorStop(1, "#0d0d0d");
@@ -2274,9 +2402,11 @@ function updateProjectiles(dt) {
 
     if (proj.type === "web") {
       proj.life -= dt;
+      proj.spin += dt * 1.5;
       proj.x += proj.vx * dt;
       proj.y += proj.vy * dt;
       confineCircle(proj, proj.r, proj.speed);
+      if (projHitSummon(proj)) proj.dead = true;
       state.fighters.forEach((f) => {
         if (f === proj.owner || f.hp <= 0 || proj.dead) return;
         if (dist(proj, f) <= proj.r + (f.radius || BALL_R)) {
@@ -2293,6 +2423,7 @@ function updateProjectiles(dt) {
       proj.x += proj.vx * dt;
       proj.y += proj.vy * dt;
       if (confineCircle(proj, proj.r, proj.speed)) proj.wallHits += 1;
+      if (projHitSummon(proj)) proj.dead = true;
       state.fighters.forEach((f) => {
         if (f === proj.owner || f.hp <= 0 || proj.dead) return;
         if (dist(proj, f) <= proj.r + (f.radius || BALL_R)) {
@@ -2304,11 +2435,11 @@ function updateProjectiles(dt) {
     }
 
     if (proj.type === "trident") {
-      proj.life -= dt;
       proj.spin += dt * 9;
       proj.x += proj.vx * dt;
       proj.y += proj.vy * dt;
       confineCircle(proj, proj.r, proj.speed);
+      if (projHitSummon(proj)) proj.dead = true;
       state.fighters.forEach((f) => {
         if (f === proj.owner || f.hp <= 0 || proj.dead) return;
         if (dist(proj, f) <= proj.r + (f.radius || BALL_R)) {
@@ -2317,7 +2448,6 @@ function updateProjectiles(dt) {
           proj.dead = true;
         }
       });
-      if (proj.life <= 0) proj.dead = true;
     }
   });
 
@@ -2477,7 +2607,7 @@ function launchWebs(fighter) {
       x: fighter.x, y: fighter.y,
       vx: Math.cos(a) * power.webSpeed, vy: Math.sin(a) * power.webSpeed,
       r: power.webR, speed: power.webSpeed, dmg: power.webDmg, slow: power.slow,
-      life: power.webLife
+      life: power.webLife, maxLife: power.webLife, spin: Math.random() * Math.PI
     });
   }
   addLog("<strong>SM Web Barrage</strong> — webs everywhere!");
@@ -2497,41 +2627,62 @@ function fireBullet(fighter, opponent) {
   });
 }
 
-/* Rocket: call in Groot, a big, durable bruiser that chases the enemy. */
+/* Rocket: call in Groot, a big durable body-blocker that soaks damage for
+   Rocket. Groot deals no damage — he just tanks hits and blocks the way. */
 function spawnGroot(fighter) {
+  const power = getHeroDef(fighter.heroId).power;
   state.summons.push({
     type: "groot", owner: fighter,
     x: fighter.x, y: fighter.y, vx: 0, vy: 0,
-    radius: 28, speed: 95, dmg: 7, hitCd: 0,
-    until: state.elapsed + 7.5
+    radius: 28, speed: 150,
+    hp: power.grootHp, maxHp: power.grootHp,
+    until: state.elapsed + 12
   });
-  addLog("<strong>RK</strong> calls in <strong>Groot!</strong>");
+  addLog("<strong>RK</strong> calls in <strong>Groot</strong> to tank!");
+}
+
+/* Enemy projectiles are soaked by Groot (reduces his HP, blocks the shot). */
+function projHitSummon(proj) {
+  for (const s of state.summons) {
+    if (s.owner === proj.owner || s.hp == null) continue;
+    if (dist(proj, s) <= proj.r + s.radius) {
+      s.hp -= proj.dmg || 0;
+      return true;
+    }
+  }
+  return false;
 }
 
 /* Cyclops: continuous optic beam that sweeps in a circle. */
 function spinBeamHit(f, opp, power) {
   if (!opp || opp.hp <= 0) return;
-  const ex = f.x + Math.cos(f.beamAngle) * power.range;
-  const ey = f.y + Math.sin(f.beamAngle) * power.range;
-  const c = closestOnSeg(opp.x, opp.y, f.x, f.y, ex, ey);
+  const edge = rayToArenaBoundary(f.x, f.y, f.beamAngle);
+  const c = closestOnSeg(opp.x, opp.y, f.x, f.y, edge.x, edge.y);
   const d = Math.hypot(opp.x - c.x, opp.y - c.y);
-  if (d <= (opp.radius || BALL_R) + 5 && f.beamCd <= 0) {
+  if (d <= (opp.radius || BALL_R) + (power.width || 6) * 0.5 && f.beamCd <= 0) {
     dealDamage(f, opp, power.damage, "optic");
     f.beamCd = power.hitCd;
   }
 }
 
-/* Invisible Woman: shove the opponent away with a force blast. */
+/* Invisible Woman: directed force blast that shoves the opponent away. */
 function forceBlast(f, opp, power) {
   if (!opp || opp.hp <= 0) return false;
   const dx = opp.x - f.x, dy = opp.y - f.y;
   const d = Math.hypot(dx, dy) || 1;
   if (d > power.range) return false;
   dealDamage(f, opp, power.damage, "force");
-  const push = fighterSpeed(opp) * 1.9;
+  const push = fighterSpeed(opp) * 2.1;
   opp.vx = (dx / d) * push;
   opp.vy = (dy / d) * push;
-  state.effects.push({ type: "force", until: state.elapsed + 0.35, x: f.x, y: f.y, r: power.range });
+  const angle = Math.atan2(dy, dx);
+  const reach = Math.min(d + 28, power.range);
+  state.effects.push({
+    type: "force", until: state.elapsed + 0.42,
+    x1: f.x, y1: f.y,
+    x2: f.x + (dx / d) * reach, y2: f.y + (dy / d) * reach,
+    angle: angle, len: reach
+  });
   return true;
 }
 
@@ -2545,30 +2696,41 @@ function launchTrident(fighter, opponent) {
     x: fighter.x, y: fighter.y,
     vx: (dx / d) * power.tridentSpeed, vy: (dy / d) * power.tridentSpeed,
     r: power.tridentR, speed: power.tridentSpeed, dmg: power.dmg, stun: power.stun,
-    life: power.tridentLife, spin: 0
+    spin: 0
   });
   addLog("<strong>NM</strong> hurls the <strong>Trident!</strong>");
 }
 
 function updateSummons(dt) {
-  state.summons = state.summons.filter((s) => s.until > state.elapsed);
+  state.summons = state.summons.filter((s) => s.until > state.elapsed && (s.hp == null || s.hp > 0));
   state.summons.forEach((s) => {
-    s.hitCd = Math.max(0, s.hitCd - dt);
-    const enemy = getOpponentOf(s.owner);
+    const owner = s.owner;
+    if (!owner || owner.hp <= 0) { s.until = 0; return; }
+    const enemy = getOpponentOf(owner);
     if (!enemy || enemy.hp <= 0) return;
-    const dx = enemy.x - s.x, dy = enemy.y - s.y;
-    const d = Math.hypot(dx, dy) || 1;
-    s.vx = (dx / d) * s.speed;
-    s.vy = (dy / d) * s.speed;
-    s.x += s.vx * dt;
-    s.y += s.vy * dt;
-    confineCircle(s, s.radius, s.speed);
-    if (d <= s.radius + (enemy.radius || BALL_R) && s.hitCd <= 0) {
-      dealDamage(s.owner, enemy, s.dmg, "groot");
-      const push = fighterSpeed(enemy) * 1.6;
-      enemy.vx = (-dx / d) * push;
-      enemy.vy = (-dy / d) * push;
-      s.hitCd = 0.7;
+
+    // Groot positions himself between Rocket and the enemy to body-block.
+    const ex = enemy.x - owner.x, ey = enemy.y - owner.y;
+    const ed = Math.hypot(ex, ey) || 1;
+    const gap = (owner.radius || BALL_R) + s.radius + 6;
+    const tx = owner.x + (ex / ed) * gap;
+    const ty = owner.y + (ey / ed) * gap;
+    const dx = tx - s.x, dy = ty - s.y;
+    const dd = Math.hypot(dx, dy) || 1;
+    const step = Math.min(dd, s.speed * dt);
+    s.x += (dx / dd) * step;
+    s.y += (dy / dd) * step;
+    confineCircle(s, s.radius, null);
+
+    // Physically block the enemy — Groot doesn't deal damage, just stops them.
+    const bx = enemy.x - s.x, by = enemy.y - s.y;
+    const bd = Math.hypot(bx, by);
+    const minD = s.radius + (enemy.radius || BALL_R);
+    if (bd < minD && bd > 0) {
+      const nx = bx / bd, ny = by / bd;
+      enemy.x = s.x + nx * minD;
+      enemy.y = s.y + ny * minD;
+      bounceOff(enemy, nx, ny, fighterSpeed(enemy));
     }
   });
 }
@@ -2656,12 +2818,40 @@ function drawArena() {
       ctx.stroke();
     }
     if (fx.type === "force") {
-      const life = (fx.until - state.elapsed) / 0.35;
-      ctx.strokeStyle = "rgba(90,190,230," + Math.max(0, life) * 0.8 + ")";
-      ctx.lineWidth = 3;
+      const life = Math.max(0, (fx.until - state.elapsed) / 0.42);
+      const prog = 1 - life;
+      const len = fx.len * (0.3 + prog * 0.9);
+      const spread = 0.2;
+      const a = fx.angle;
+      const alpha = life * 0.9;
+      const ox = fx.x1, oy = fx.y1;
+
       ctx.beginPath();
-      ctx.arc(fx.x, fx.y, fx.r * (1 - life * 0.7), 0, Math.PI * 2);
+      ctx.moveTo(ox, oy);
+      ctx.lineTo(ox + Math.cos(a - spread) * len, oy + Math.sin(a - spread) * len);
+      ctx.lineTo(ox + Math.cos(a + spread) * len, oy + Math.sin(a + spread) * len);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(80,180,220," + alpha * 0.22 + ")";
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(130,210,245," + alpha + ")";
+      ctx.lineWidth = 5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.lineTo(ox + Math.cos(a) * len, oy + Math.sin(a) * len);
       ctx.stroke();
+
+      ctx.strokeStyle = "rgba(200,240,255," + alpha * 0.7 + ")";
+      ctx.lineWidth = 2;
+      for (let i = -1; i <= 1; i++) {
+        const off = i * 0.08;
+        ctx.beginPath();
+        ctx.moveTo(ox, oy);
+        ctx.lineTo(ox + Math.cos(a + off) * len * 0.85, oy + Math.sin(a + off) * len * 0.85);
+        ctx.stroke();
+      }
+      ctx.lineCap = "butt";
     }
   });
 
@@ -2695,19 +2885,8 @@ function drawArena() {
       }
     }
     if (proj.type === "web") {
-      ctx.fillStyle = "rgba(240,240,240,0.9)";
-      ctx.beginPath();
-      ctx.arc(proj.x, proj.y, proj.r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(120,120,120,0.9)";
-      ctx.lineWidth = 1;
-      for (let k = 0; k < 6; k++) {
-        const a = (k / 6) * Math.PI * 2;
-        ctx.beginPath();
-        ctx.moveTo(proj.x, proj.y);
-        ctx.lineTo(proj.x + Math.cos(a) * proj.r, proj.y + Math.sin(a) * proj.r);
-        ctx.stroke();
-      }
+      const alpha = Math.min(1, (proj.life / (proj.maxLife || 1)) + 0.25) * 0.95;
+      drawSpiderWeb(proj.x, proj.y, proj.r, proj.spin, alpha, proj.vx, proj.vy);
     }
     if (proj.type === "bullet") {
       ctx.fillStyle = "#ffcf4d";
@@ -2759,6 +2938,15 @@ function drawArena() {
       ctx.arc(s.x - 8, s.y - 6, 3, 0, Math.PI * 2);
       ctx.arc(s.x + 8, s.y - 6, 3, 0, Math.PI * 2);
       ctx.fill();
+
+      if (s.maxHp) {
+        const w = s.radius * 1.8;
+        const pct = Math.max(0, s.hp / s.maxHp);
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillRect(s.x - w / 2, s.y - s.radius - 10, w, 4);
+        ctx.fillStyle = "#7ec86a";
+        ctx.fillRect(s.x - w / 2, s.y - s.radius - 10, w * pct, 4);
+      }
       ctx.globalAlpha = 1;
     }
   });
@@ -2769,17 +2957,28 @@ function drawArena() {
     const R = f.radius || BALL_R;
 
     if (hero.power.type === "spinbeam" && f.hp > 0) {
-      const ex = f.x + Math.cos(f.beamAngle) * hero.power.range;
-      const ey = f.y + Math.sin(f.beamAngle) * hero.power.range;
-      ctx.strokeStyle = "rgba(232,25,44,0.85)";
-      ctx.lineWidth = 4;
+      const edge = rayToArenaBoundary(f.x, f.y, f.beamAngle);
+      ctx.save();
+      arenaPath();
+      ctx.clip();
       ctx.shadowColor = "#E8192C";
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = 14;
+      ctx.strokeStyle = "rgba(232,25,44,0.85)";
+      ctx.lineWidth = (hero.power.width || 6) * 1.5;
+      ctx.lineCap = "round";
       ctx.beginPath();
       ctx.moveTo(f.x, f.y);
-      ctx.lineTo(ex, ey);
+      ctx.lineTo(edge.x, edge.y);
       ctx.stroke();
+      ctx.strokeStyle = "rgba(255,220,220,0.95)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(f.x, f.y);
+      ctx.lineTo(edge.x, edge.y);
+      ctx.stroke();
+      ctx.lineCap = "butt";
       ctx.shadowBlur = 0;
+      ctx.restore();
     }
 
     if (capHasShield(f)) drawHeldShield(f, facing);
@@ -2966,9 +3165,12 @@ function battleStep(dt) {
       }
     }
 
-    if (power.type === "trident" && fighter.powerTimer >= power.interval && !hasProjectile(fighter, "trident")) {
-      launchTrident(fighter, opponent);
-      fighter.powerTimer = 0;
+    if (power.type === "trident" && fighter.powerTimer >= power.interval) {
+      const mine = state.projectiles.filter((p) => p.type === "trident" && p.owner === fighter).length;
+      if (mine < (power.maxActive || 8)) {
+        launchTrident(fighter, opponent);
+        fighter.powerTimer = 0;
+      }
     }
   });
 
