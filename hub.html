@@ -482,6 +482,23 @@ body.wrong-flash { animation: flash-red 0.4s ease-out; }
   outline: none;
 }
 
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.settings-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--gold);
+}
+
 .sim-progress {
   height: 6px;
   background: #222;
@@ -908,12 +925,17 @@ body.wrong-flash { animation: flash-red 0.4s ease-out; }
 <div class="overlay hidden" id="settings-modal">
   <div class="settings-panel">
     <div class="settings-title">Settings</div>
-    <p class="settings-sub">Run fast Marvel Brawl simulations to check hero win rates.</p>
+    <p class="settings-sub">Run fast headless fights to compare all 9 heroes. With "All matchups" on, each hero fights every other hero equally.</p>
 
     <div class="settings-field">
-      <label class="settings-label" for="sim-count">Simulations</label>
-      <input class="settings-input" id="sim-count" type="number" min="1" max="1000" value="100" inputmode="numeric">
+      <label class="settings-label" for="sim-count" id="sim-count-label">Fights per matchup</label>
+      <input class="settings-input" id="sim-count" type="number" min="1" max="500" value="25" inputmode="numeric">
     </div>
+
+    <label class="settings-check" for="sim-all-matchups">
+      <input type="checkbox" id="sim-all-matchups" checked>
+      All matchups (every hero vs every hero)
+    </label>
 
     <div class="sim-progress"><div class="sim-progress-fill" id="sim-progress-fill"></div></div>
     <div class="sim-status" id="sim-status">Ready to run.</div>
@@ -1486,24 +1508,48 @@ function renderSimResults(result) {
   const meta = document.getElementById("sim-meta");
   const panel = document.getElementById("sim-results");
   const heroes = Object.values(window.BrawlSim.HEROES);
-  const decided = result.count - result.timeouts;
 
-  rows.innerHTML = heroes.map(function (hero) {
+  const sorted = heroes.slice().sort(function (a, b) {
+    const fa = result.fights[a.id] || 0;
+    const fb = result.fights[b.id] || 0;
+    const pa = fa > 0 ? (result.wins[a.id] || 0) / fa : 0;
+    const pb = fb > 0 ? (result.wins[b.id] || 0) / fb : 0;
+    return pb - pa;
+  });
+
+  rows.innerHTML = sorted.map(function (hero) {
     const wins = result.wins[hero.id] || 0;
-    const pct = decided > 0 ? Math.round((wins / decided) * 100) : 0;
+    const fights = result.fights[hero.id] || 0;
+    const pct = fights > 0 ? Math.round((wins / fights) * 100) : 0;
     return (
       '<div class="sim-row">' +
         '<span class="sim-hero" style="color:' + hero.color + '">' + hero.abbr + " " + hero.name + "</span>" +
         '<span class="sim-bar-wrap"><span class="sim-bar" style="width:' + pct + '%;background:' + hero.color + '"></span></span>' +
-        '<span class="sim-pct">' + pct + "%</span>" +
+        '<span class="sim-pct">' + pct + "% <span style=\"opacity:0.55;font-size:11px\">(" + wins + "/" + fights + ")</span></span>" +
       "</div>"
     );
   }).join("");
 
-  meta.textContent =
-    result.count + " fights in " + result.elapsedMs + "ms" +
-    (result.timeouts ? " · " + result.timeouts + " timeouts" : "");
+  let metaText = result.count + " fights in " + result.elapsedMs + "ms";
+  if (result.perPair) {
+    metaText += " · " + result.perPairCount + " per matchup × " + window.BrawlSim.allMatchupPairs().length + " pairs";
+  }
+  if (result.timeouts) metaText += " · " + result.timeouts + " timeouts";
+  meta.textContent = metaText;
   panel.classList.remove("hidden");
+}
+
+function updateSimCountLabel() {
+  const allMatchups = document.getElementById("sim-all-matchups").checked;
+  const label = document.getElementById("sim-count-label");
+  const input = document.getElementById("sim-count");
+  if (allMatchups) {
+    label.textContent = "Fights per matchup";
+    input.max = "500";
+  } else {
+    label.textContent = "Total random fights";
+    input.max = "10000";
+  }
 }
 
 async function runSimulations() {
@@ -1513,26 +1559,31 @@ async function runSimulations() {
   }
 
   const countInput = document.getElementById("sim-count");
-  const count = Math.max(1, Math.min(1000, Number(countInput.value) || 100));
+  const allMatchups = document.getElementById("sim-all-matchups").checked;
+  const max = allMatchups ? 500 : 10000;
+  const count = Math.max(1, Math.min(max, Number(countInput.value) || 25));
   countInput.value = String(count);
 
   const runBtn = document.getElementById("btn-run-sim");
   const status = document.getElementById("sim-status");
   const fill = document.getElementById("sim-progress-fill");
+  const totalEstimate = allMatchups
+    ? count * window.BrawlSim.allMatchupPairs().length
+    : count;
 
   runBtn.disabled = true;
   document.getElementById("sim-results").classList.add("hidden");
   fill.style.width = "0%";
-  status.textContent = "Running 0 / " + count + "...";
+  status.textContent = "Running 0 / " + totalEstimate + "...";
 
   const result = await window.BrawlSim.runBatchAsync(count, function (done, total) {
     const pct = Math.round((done / total) * 100);
     fill.style.width = pct + "%";
     status.textContent = "Running " + done + " / " + total + "...";
-  });
+  }, { allMatchups: allMatchups });
 
   fill.style.width = "100%";
-  status.textContent = "Done — " + count + " simulations complete.";
+  status.textContent = "Done — " + result.count + " fights complete.";
   renderSimResults(result);
   runBtn.disabled = false;
 }
@@ -1540,6 +1591,8 @@ async function runSimulations() {
 document.getElementById("btn-settings").addEventListener("click", openSettings);
 document.getElementById("btn-close-settings").addEventListener("click", closeSettings);
 document.getElementById("btn-run-sim").addEventListener("click", runSimulations);
+document.getElementById("sim-all-matchups").addEventListener("change", updateSimCountLabel);
+updateSimCountLabel();
 document.getElementById("settings-modal").addEventListener("click", function (event) {
   if (event.target.id === "settings-modal") closeSettings();
 });
