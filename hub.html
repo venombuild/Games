@@ -846,9 +846,9 @@ body.wrong-flash { animation: flash-red 0.4s ease-out; }
   display: block;
   width: 100%;
   aspect-ratio: 1;
-  border-radius: 50%;
-  background: #111;
-  border: 2px solid #333;
+  border-radius: 14px;
+  background: #0d0d0d;
+  border: 1px solid #262626;
 }
 #brawl-host .status-banner {
   text-align: center;
@@ -1639,11 +1639,187 @@ const state = {
   shieldTrails: [],
   running: false,
   animId: null,
-  elapsed: 0
+  elapsed: 0,
+  arena: null,
+  lastArenaIndex: -1
 };
 
 const canvas = $("arena-canvas");
 const ctx = canvas.getContext("2d");
+
+/* ---- Arenas ----------------------------------------------------------------
+   Five arena shapes on the 340x340 canvas. Boundaries are convex (circle or
+   polygon) so a simple half-plane clamp keeps balls inside; interior "walls"
+   are capsule segments the balls bounce off. */
+function regularPoly(cx, cy, radius, sides, rot) {
+  const verts = [];
+  for (let i = 0; i < sides; i++) {
+    const a = rot + (i * 2 * Math.PI) / sides;
+    verts.push({ x: cx + Math.cos(a) * radius, y: cy + Math.sin(a) * radius });
+  }
+  return verts;
+}
+
+function polyEdges(verts, cx, cy) {
+  const edges = [];
+  for (let i = 0; i < verts.length; i++) {
+    const v1 = verts[i];
+    const v2 = verts[(i + 1) % verts.length];
+    let nx = -(v2.y - v1.y);
+    let ny = v2.x - v1.x;
+    const len = Math.hypot(nx, ny) || 1;
+    nx /= len; ny /= len;
+    const mx = (v1.x + v2.x) / 2;
+    const my = (v1.y + v2.y) / 2;
+    if ((cx - mx) * nx + (cy - my) * ny < 0) { nx = -nx; ny = -ny; }
+    edges.push({ px: v1.x, py: v1.y, nx, ny });
+  }
+  return edges;
+}
+
+function closestOnSeg(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len2 = dx * dx + dy * dy || 1;
+  let t = ((px - x1) * dx + (py - y1) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return { x: x1 + dx * t, y: y1 + dy * t };
+}
+
+const ARENAS = [
+  {
+    name: "The Coliseum", kind: "circle", cx: CENTER, cy: CENTER, radius: 150,
+    spawn: [{ x: CENTER - 65, y: CENTER - 40 }, { x: CENTER + 65, y: CENTER + 40 }]
+  },
+  (function () {
+    const verts = [{ x: 22, y: 58 }, { x: 318, y: 58 }, { x: 318, y: 282 }, { x: 22, y: 282 }];
+    return {
+      name: "The Grid", kind: "poly", verts, edges: polyEdges(verts, CENTER, CENTER),
+      spawn: [{ x: 78, y: 110 }, { x: 262, y: 230 }]
+    };
+  })(),
+  (function () {
+    const verts = [{ x: 22, y: 48 }, { x: 318, y: 48 }, { x: 318, y: 292 }, { x: 22, y: 292 }];
+    return {
+      name: "The Divide", kind: "poly", verts, edges: polyEdges(verts, CENTER, CENTER),
+      obstacles: [{ x1: CENTER, y1: 116, x2: CENTER, y2: 224, t: 7 }],
+      spawn: [{ x: 86, y: 98 }, { x: 254, y: 242 }]
+    };
+  })(),
+  (function () {
+    const verts = regularPoly(CENTER, CENTER, 156, 6, -Math.PI / 2);
+    return {
+      name: "The Hive", kind: "poly", verts, edges: polyEdges(verts, CENTER, CENTER),
+      spawn: [{ x: CENTER - 58, y: CENTER - 28 }, { x: CENTER + 58, y: CENTER + 28 }]
+    };
+  })(),
+  (function () {
+    const verts = regularPoly(CENTER, CENTER, 156, 8, Math.PI / 8);
+    return {
+      name: "The Octagon", kind: "poly", verts, edges: polyEdges(verts, CENTER, CENTER),
+      spawn: [{ x: CENTER - 60, y: CENTER - 30 }, { x: CENTER + 60, y: CENTER + 30 }]
+    };
+  })()
+];
+
+function pickArena() {
+  let i = Math.floor(Math.random() * ARENAS.length);
+  if (ARENAS.length > 1 && i === state.lastArenaIndex) i = (i + 1) % ARENAS.length;
+  state.lastArenaIndex = i;
+  return ARENAS[i];
+}
+
+function bounceOff(obj, nx, ny, speed) {
+  const vdot = obj.vx * nx + obj.vy * ny;
+  if (vdot < 0) {
+    obj.vx -= 2 * vdot * nx;
+    obj.vy -= 2 * vdot * ny;
+  }
+  if (speed != null) {
+    const s = Math.hypot(obj.vx, obj.vy) || 1;
+    obj.vx = (obj.vx / s) * speed;
+    obj.vy = (obj.vy / s) * speed;
+  }
+}
+
+function confineCircle(obj, r, speed) {
+  const a = state.arena;
+  if (!a) return false;
+  let hit = false;
+
+  if (a.kind === "circle") {
+    const dx = obj.x - a.cx, dy = obj.y - a.cy;
+    const d = Math.hypot(dx, dy);
+    const maxD = a.radius - r;
+    if (d > maxD && d > 0) {
+      obj.x = a.cx + (dx / d) * maxD;
+      obj.y = a.cy + (dy / d) * maxD;
+      bounceOff(obj, -dx / d, -dy / d, speed);
+      hit = true;
+    }
+  } else if (a.kind === "poly") {
+    for (const e of a.edges) {
+      const dsign = (obj.x - e.px) * e.nx + (obj.y - e.py) * e.ny;
+      if (dsign < r) {
+        obj.x += e.nx * (r - dsign);
+        obj.y += e.ny * (r - dsign);
+        bounceOff(obj, e.nx, e.ny, speed);
+        hit = true;
+      }
+    }
+  }
+
+  if (a.obstacles) {
+    for (const w of a.obstacles) {
+      const c = closestOnSeg(obj.x, obj.y, w.x1, w.y1, w.x2, w.y2);
+      const dx = obj.x - c.x, dy = obj.y - c.y;
+      const d = Math.hypot(dx, dy);
+      const minD = r + w.t;
+      if (d < minD) {
+        const ux = d > 0.0001 ? dx / d : 1;
+        const uy = d > 0.0001 ? dy / d : 0;
+        obj.x = c.x + ux * minD;
+        obj.y = c.y + uy * minD;
+        bounceOff(obj, ux, uy, speed);
+        hit = true;
+      }
+    }
+  }
+
+  obj._wallHit = hit;
+  return hit;
+}
+
+function drawArenaFloor() {
+  const a = state.arena;
+  ctx.beginPath();
+  if (a.kind === "circle") {
+    ctx.arc(a.cx, a.cy, a.radius, 0, Math.PI * 2);
+  } else {
+    a.verts.forEach((v, i) => (i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)));
+    ctx.closePath();
+  }
+  const grad = ctx.createRadialGradient(CENTER, CENTER, 20, CENTER, CENTER, 165);
+  grad.addColorStop(0, "#1e1e1e");
+  grad.addColorStop(1, "#0d0d0d");
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.strokeStyle = "#444";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  if (a.obstacles) {
+    a.obstacles.forEach((w) => {
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "#3a3a3a";
+      ctx.lineWidth = w.t * 2 + 4;
+      ctx.beginPath(); ctx.moveTo(w.x1, w.y1); ctx.lineTo(w.x2, w.y2); ctx.stroke();
+      ctx.strokeStyle = "#5a4a2a";
+      ctx.lineWidth = w.t * 2;
+      ctx.beginPath(); ctx.moveTo(w.x1, w.y1); ctx.lineTo(w.x2, w.y2); ctx.stroke();
+      ctx.lineCap = "butt";
+    });
+  }
+}
 
 function show(id) {
   root.querySelectorAll(".screen").forEach((s) => s.classList.add("hidden"));
@@ -1822,24 +1998,7 @@ function drawHeldHammer(fighter, facing) {
 }
 
 function resolveProjectileWall(proj, speed = PROJECTILE_SPEED) {
-  const dx = proj.x - CENTER;
-  const dy = proj.y - CENTER;
-  const d = Math.sqrt(dx * dx + dy * dy);
-  const maxD = ARENA_R - proj.r;
-
-  if (d > maxD && d > 0) {
-    const nx = dx / d;
-    const ny = dy / d;
-    proj.x = CENTER + nx * maxD;
-    proj.y = CENTER + ny * maxD;
-    const dot = proj.vx * nx + proj.vy * ny;
-    proj.vx -= 2 * dot * nx;
-    proj.vy -= 2 * dot * ny;
-    const mag = Math.sqrt(proj.vx * proj.vx + proj.vy * proj.vy) || 1;
-    proj.vx = (proj.vx / mag) * speed;
-    proj.vy = (proj.vy / mag) * speed;
-    if (proj.bounces != null) proj.bounces += 1;
-  }
+  if (confineCircle(proj, proj.r, speed) && proj.bounces != null) proj.bounces += 1;
 }
 
 function dealDamage(attacker, defender, amount, effectType) {
@@ -2042,8 +2201,7 @@ function updateProjectiles(dt) {
 
       if (proj.grabbed && proj.grabbed.hp > 0) {
         const g = proj.grabbed;
-        const centerDist = Math.sqrt((g.x - CENTER) * (g.x - CENTER) + (g.y - CENTER) * (g.y - CENTER));
-        const atWall = centerDist >= ARENA_R - BALL_R - 0.5;
+        const atWall = g._wallHit;
         const returnImpactRange = BALL_R * 2 + 1;
 
         if (atWall && proj.wallHitCd <= 0) {
@@ -2096,23 +2254,7 @@ function randomVelocity() {
 }
 
 function resolveCircleWall(ball) {
-  const dx = ball.x - CENTER;
-  const dy = ball.y - CENTER;
-  const d = Math.sqrt(dx * dx + dy * dy);
-  const maxD = ARENA_R - BALL_R;
-
-  if (d > maxD && d > 0) {
-    const nx = dx / d;
-    const ny = dy / d;
-    ball.x = CENTER + nx * maxD;
-    ball.y = CENTER + ny * maxD;
-    const dot = ball.vx * nx + ball.vy * ny;
-    ball.vx -= 2 * dot * nx;
-    ball.vy -= 2 * dot * ny;
-    const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy) || 1;
-    ball.vx = (ball.vx / speed) * BALL_SPEED;
-    ball.vy = (ball.vy / speed) * BALL_SPEED;
-  }
+  confineCircle(ball, BALL_R, BALL_SPEED);
 }
 
 function resolveBallCollision(a, b) {
@@ -2255,16 +2397,7 @@ function updateHud() {
 function drawArena() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  ctx.beginPath();
-  ctx.arc(CENTER, CENTER, ARENA_R, 0, Math.PI * 2);
-  const grad = ctx.createRadialGradient(CENTER, CENTER, 20, CENTER, CENTER, ARENA_R);
-  grad.addColorStop(0, "#1e1e1e");
-  grad.addColorStop(1, "#0d0d0d");
-  ctx.fillStyle = grad;
-  ctx.fill();
-  ctx.strokeStyle = "#444";
-  ctx.lineWidth = 3;
-  ctx.stroke();
+  drawArenaFloor();
 
   state.effects = state.effects.filter((fx) => fx.until > state.elapsed);
   state.effects.forEach((fx) => {
@@ -2495,13 +2628,16 @@ function initBattle() {
   const v1 = randomVelocity();
   const v2 = randomVelocity();
 
+  state.arena = pickArena();
+  const sp = state.arena.spawn;
+
   state.projectiles = [];
   state.shieldTrails = [];
   state.fighters = [
     {
       player: 1, name: "Player 1", heroId: state.p1Hero,
       hp: h1.hp, maxHp: h1.hp,
-      x: CENTER - 65, y: CENTER - 40,
+      x: sp[0].x, y: sp[0].y,
       vx: v1.vx, vy: v1.vy,
       powerTimer: h1.power.interval * 0.5,
       meleeTimer: 0, shieldBashTimer: 0, shield: 0, shieldBuff: null, pull: null, grabbedBy: null,
@@ -2510,7 +2646,7 @@ function initBattle() {
     {
       player: 2, name: "Player 2", heroId: state.p2Hero,
       hp: h2.hp, maxHp: h2.hp,
-      x: CENTER + 65, y: CENTER + 40,
+      x: sp[1].x, y: sp[1].y,
       vx: v2.vx, vy: v2.vy,
       powerTimer: h2.power.interval * 0.5,
       meleeTimer: 0, shieldBashTimer: 0, shield: 0, shieldBuff: null, pull: null, grabbedBy: null,
@@ -2520,7 +2656,8 @@ function initBattle() {
 
   state.log = [];
   addLog("<strong>FIGHT!</strong> " + h1.name + " vs " + h2.name);
-  $("status-banner").textContent = "WATCH THE BRAWL";
+  addLog("Arena: <strong>" + state.arena.name + "</strong>");
+  $("status-banner").textContent = state.arena.name.toUpperCase();
   updateHud();
   drawArena();
   show("screen-battle");

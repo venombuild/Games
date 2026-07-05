@@ -1,4 +1,4 @@
 {
-  "version": "2026070403",
-  "update": "Fixed Marvel Brawl opening in a nested browser view on phones — it now loads right inside the Games hub (no page jump), just like Guess Who. Lay-flat tabletop mode is still here too."
+  "version": "2026070501",
+  "update": "Marvel Brawl now has 5 arenas that rotate each match — The Coliseum (circle), The Grid (rectangle), The Divide (rectangle with a center wall), The Hive (hexagon), and The Octagon. Balls bounce off the new shapes and the center wall."
 }
