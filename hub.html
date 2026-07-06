@@ -1652,50 +1652,50 @@ const HAMMER_RETURN_GRAB_RELEASE_DIST = 78;
 
 const HEROES = {
   ironman: {
-    id: "ironman", name: "Iron Man", abbr: "IM", color: "#c41e2a", hp: 108,
-    power: { type: "beam", name: "Unibeam", damage: 14, range: 160, interval: 2.95, windup: 0.4, beam: true }
+    id: "ironman", name: "Iron Man", abbr: "IM", color: "#c41e2a", hp: 106,
+    power: { type: "beam", name: "Unibeam", damage: 11, range: 150, interval: 3.3, windup: 0.4, beam: true }
   },
   cap: {
-    id: "cap", name: "Captain America", abbr: "CA", color: "#1e4a8c", hp: 115,
+    id: "cap", name: "Captain America", abbr: "CA", color: "#1e4a8c", hp: 113,
     power: {
-      type: "shield", name: "Shield Throw", interval: 4.1, windup: 0.35,
-      shieldDamage: 8, shieldLife: 2.3, damageReduction: 0.5, buffTime: 5,
-      holdDamage: 5, holdInterval: 2.4,
-      trailDamage: 1.2, trailLife: 1.2, trailRadius: 18, trailSpacing: 28
+      type: "shield", name: "Shield Throw", interval: 4.3, windup: 0.35,
+      shieldDamage: 7, shieldLife: 2.3, damageReduction: 0.5, buffTime: 5,
+      holdDamage: 4, holdInterval: 2.4,
+      trailDamage: 0.9, trailLife: 1.2, trailRadius: 18, trailSpacing: 28
     }
   },
   thor: {
-    id: "thor", name: "Thor", abbr: "TH", color: "#6b4ce6", hp: 102,
+    id: "thor", name: "Thor", abbr: "TH", color: "#6b4ce6", hp: 104,
     power: {
-      type: "hammer", name: "Mjolnir", interval: 4.6,
-      meleeDamage: 4, meleeInterval: 2.3,
-      hammerDamage: 7, boomerangRange: 156,
+      type: "hammer", name: "Mjolnir", interval: 4.65,
+      meleeDamage: 4, meleeInterval: 2.35,
+      hammerDamage: 6.5, boomerangRange: 153,
       wallSlamDamage: 3, returnImpactDamage: 3
     }
   },
   hulk: {
-    id: "hulk", name: "Hulk", abbr: "HK", color: "#3d8b37", hp: 135,
-    power: { type: "touch", name: "Smash", damage: 21, interval: 3.18 }
+    id: "hulk", name: "Hulk", abbr: "HK", color: "#3d8b37", hp: 126,
+    power: { type: "touch", name: "Smash", damage: 17, interval: 3.5 }
   },
   spiderman: {
-    id: "spiderman", name: "Spider-Man", abbr: "SM", color: "#c81e28", hp: 100, speedMult: 1.35,
-    power: { type: "web", name: "Web Barrage", interval: 3.6, webs: 4, webSpeed: 205, webDmg: 5, webLife: 3.2, webR: 20, slow: 1.6 }
+    id: "spiderman", name: "Spider-Man", abbr: "SM", color: "#c81e28", hp: 104, speedMult: 1.1,
+    power: { type: "web", name: "Web Barrage", interval: 3.65, webs: 4, webSpeed: 196, webDmg: 4.6, webLife: 2.8, webR: 18, slow: 1.15 }
   },
   rocket: {
-    id: "rocket", name: "Rocket", abbr: "RK", color: "#9a6a33", hp: 96, radius: 12,
-    power: { type: "blaster", name: "Blaster & Groot", interval: 1.4, bulletDmg: 6, bulletSpeed: 275, bulletR: 5, bulletLife: 1.6, grootInterval: 8, grootHp: 55 }
+    id: "rocket", name: "Rocket", abbr: "RK", color: "#9a6a33", hp: 99, radius: 12,
+    power: { type: "blaster", name: "Blaster & Groot", interval: 1.6, bulletDmg: 6.1, bulletSpeed: 272, bulletR: 5, bulletLife: 1.6, grootInterval: 8.6, grootHp: 47 }
   },
   cyclops: {
-    id: "cyclops", name: "Cyclops", abbr: "CY", color: "#2166a8", hp: 112,
-    power: { type: "spinbeam", name: "Optic Blast", interval: 1, rotSpeed: 1.25, width: 14, damage: 3, hitCd: 0.28 }
+    id: "cyclops", name: "Cyclops", abbr: "CY", color: "#2166a8", hp: 110,
+    power: { type: "spinbeam", name: "Optic Blast", interval: 1, rotSpeed: 1.15, width: 17, damage: 4.8, hitCd: 0.2 }
   },
   invisiblewoman: {
-    id: "invisiblewoman", name: "Invisible Woman", abbr: "IW", color: "#39a4c4", hp: 108,
-    power: { type: "force", name: "Force Field", interval: 2.6, range: 150, damage: 5, phaseInterval: 7.5, phaseDuration: 2.4 }
+    id: "invisiblewoman", name: "Invisible Woman", abbr: "IW", color: "#39a4c4", hp: 107,
+    power: { type: "force", name: "Force Field", interval: 2.6, range: 146, damage: 5, phaseInterval: 8.6, phaseDuration: 2.3 }
   },
   namor: {
-    id: "namor", name: "Namor", abbr: "NM", color: "#2fa07a", hp: 112,
-    power: { type: "trident", name: "Trident", interval: 2.8, dmg: 10, tridentSpeed: 245, tridentR: 7, stun: 0.75, maxActive: 8 }
+    id: "namor", name: "Namor", abbr: "NM", color: "#2fa07a", hp: 107,
+    power: { type: "trident", name: "Trident", interval: 3.3, dmg: 8.3, tridentSpeed: 236, tridentR: 7, stun: 0.43, maxActive: 4 }
   }
 };
 
