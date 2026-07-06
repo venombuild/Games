@@ -45,7 +45,7 @@
     },
     rocket: {
       id: "rocket", name: "Rocket", abbr: "RK", color: "#9a6a33", hp: 99, radius: 12,
-      power: { type: "blaster", name: "Blaster & Groot", interval: 1.6, bulletDmg: 6.1, bulletSpeed: 272, bulletR: 5, bulletLife: 1.6, grootInterval: 8.6, grootHp: 47 }
+      power: { type: "blaster", name: "Blaster & Groot", interval: 1.6, bulletDmg: 6.1, bulletSpeed: 272, bulletR: 5, bulletLife: 1.6, grootInterval: 15, grootHp: 47 }
     },
     cyclops: {
       id: "cyclops", name: "Cyclops", abbr: "CY", color: "#2166a8", hp: 110,
