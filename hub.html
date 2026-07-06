@@ -3381,11 +3381,12 @@ function initBattle() {
 
 function randomPickOptions() {
   const ids = Object.keys(HEROES);
-  const options = [];
-  for (let i = 0; i < 3; i += 1) {
-    options.push(ids[Math.floor(Math.random() * ids.length)]);
+  const shuffled = ids.slice();
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
-  return options;
+  return shuffled.slice(0, 3);
 }
 
 function renderTeamPreview(team) {

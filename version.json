@@ -1,4 +1,4 @@
 {
-  "version": "2026070602",
-  "update": "Marvel Brawl is now best of 3: draft three heroes from random options, then fight one round per pick."
+  "version": "2026070603",
+  "update": "Draft picks now always show 3 different hero options (no duplicates in one pick)."
 }
