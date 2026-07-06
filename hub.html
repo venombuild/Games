@@ -800,9 +800,48 @@ body.wrong-flash { animation: flash-red 0.4s ease-out; }
 }
 #brawl-host .hero-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
   margin-bottom: 20px;
+}
+#brawl-host .pick-slot-note {
+  font-size: 12px;
+  color: var(--gold);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+#brawl-host .team-preview {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+#brawl-host .team-slot {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 14px;
+  color: var(--sub);
+  background: #141414;
+}
+#brawl-host .team-slot.filled {
+  border-color: var(--gold);
+  color: var(--text);
+}
+#brawl-host .series-score {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 13px;
+  letter-spacing: 2px;
+  color: var(--gold);
+  text-align: center;
+  margin-bottom: 4px;
 }
 #brawl-host .hero-card {
   background: var(--card-bg);
@@ -1069,7 +1108,7 @@ body.wrong-flash { animation: flash-red 0.4s ease-out; }
     <div style="text-align:center;max-width:320px;">
       <button type="button" class="back-btn" id="btn-hub">&larr; Hub</button>
       <div class="title-logo">MARVEL<br>BRAWL</div>
-      <p class="title-sub">Pick your hero and watch the fight. Balls bounce, powers fire on their own — last hero standing wins.</p>
+      <p class="title-sub">Best of 3 rounds. Draft three heroes (random options each pick), pass the phone, and watch the fights play out automatically.</p>
       <button type="button" class="btn btn-primary" id="btn-fight">Enter Arena</button>
     </div>
   </div>
@@ -1078,7 +1117,9 @@ body.wrong-flash { animation: flash-red 0.4s ease-out; }
     <div class="setup-wrap">
       <button type="button" class="back-btn" id="btn-back-title">&larr; Back</button>
       <div class="player-tag p1" id="pick-player-tag">Player 1</div>
-      <p class="setup-label">Choose Your Hero</p>
+      <p class="pick-slot-note" id="pick-slot-note">Hero pick 1 of 3</p>
+      <p class="setup-label">Choose one hero</p>
+      <div class="team-preview" id="team-preview"></div>
       <div class="hero-grid" id="hero-grid"></div>
       <button type="button" class="btn btn-primary" id="btn-confirm-pick" disabled>Lock In</button>
     </div>
@@ -1097,6 +1138,7 @@ body.wrong-flash { animation: flash-red 0.4s ease-out; }
     <div class="battle-wrap">
       <div class="hud-slot hud-top" id="hud-top"></div>
       <div class="battle-center">
+        <div class="series-score" id="series-score">SERIES 0-0 · ROUND 1</div>
         <div class="arena-wrap">
           <canvas id="arena-canvas" width="340" height="340"></canvas>
         </div>
@@ -1109,10 +1151,12 @@ body.wrong-flash { animation: flash-red 0.4s ease-out; }
 
   <div class="screen hidden" id="screen-win">
     <div class="win-wrap">
-      <div class="win-title">KO!</div>
+      <div class="win-title" id="win-title">KO!</div>
       <div class="title-logo" id="win-hero" style="font-size:48px;margin-bottom:8px;">HULK</div>
-      <p class="win-sub"><strong id="win-player"></strong> wins!</p>
-      <button type="button" class="btn btn-primary" id="btn-rematch">Rematch</button>
+      <p class="win-sub"><strong id="win-player"></strong> <span id="win-result-text">wins the round!</span></p>
+      <p class="win-sub" id="win-series-sub" style="margin-top:-12px;font-size:13px;"></p>
+      <button type="button" class="btn btn-primary hidden" id="btn-next-round">Next Round</button>
+      <button type="button" class="btn btn-primary" id="btn-rematch">New Match</button>
       <button type="button" class="btn btn-ghost" id="btn-win-hub">Back to Hub</button>
     </div>
   </div>
@@ -1700,12 +1744,18 @@ const HEROES = {
 };
 
 const state = {
-  p1Hero: null,
-  p2Hero: null,
+  p1Team: [],
+  p2Team: [],
+  pickStep: 1,
+  pickSlot: 0,
+  pickOptions: [],
+  selectedHero: null,
+  roundIndex: 0,
+  p1Wins: 0,
+  p2Wins: 0,
+  matchOver: false,
   fighters: [],
   handoffNext: null,
-  pickStep: 1,
-  selectedHero: null,
   log: [],
   effects: [],
   projectiles: [],
@@ -2791,10 +2841,34 @@ function updateSummons(dt) {
 function endBattle(winner) {
   state.running = false;
   if (state.animId) cancelAnimationFrame(state.animId);
+  if (winner.player === 1) state.p1Wins += 1;
+  else state.p2Wins += 1;
+
   const hero = getHeroDef(winner.heroId);
   $("win-hero").textContent = hero.name.toUpperCase();
   $("win-player").textContent = winner.name;
+
+  state.matchOver = state.p1Wins >= 2 || state.p2Wins >= 2;
+  if (state.matchOver) {
+    $("win-title").textContent = "MATCH WIN!";
+    $("win-result-text").textContent = "wins the match " + state.p1Wins + "-" + state.p2Wins + "!";
+    $("win-series-sub").textContent = "Round " + (state.roundIndex + 1) + " clincher — " + hero.name;
+    $("btn-next-round").classList.add("hidden");
+    $("btn-rematch").classList.remove("hidden");
+  } else {
+    $("win-title").textContent = "ROUND " + (state.roundIndex + 1) + " KO!";
+    $("win-result-text").textContent = "wins round " + (state.roundIndex + 1) + "!";
+    $("win-series-sub").textContent = "Series " + state.p1Wins + "-" + state.p2Wins + " · Round " + (state.roundIndex + 2) + " up next";
+    $("btn-next-round").classList.remove("hidden");
+    $("btn-rematch").classList.remove("hidden");
+  }
   show("screen-win");
+}
+
+function updateSeriesScore() {
+  const el = $("series-score");
+  if (!el) return;
+  el.textContent = "SERIES " + state.p1Wins + "-" + state.p2Wins + " · ROUND " + (state.roundIndex + 1);
 }
 
 function renderFighterHud(f) {
@@ -3254,8 +3328,10 @@ function startBattleLoop() {
 }
 
 function initBattle() {
-  const h1 = getHeroDef(state.p1Hero);
-  const h2 = getHeroDef(state.p2Hero);
+  const p1HeroId = state.p1Team[state.roundIndex];
+  const p2HeroId = state.p2Team[state.roundIndex];
+  const h1 = getHeroDef(p1HeroId);
+  const h2 = getHeroDef(p2HeroId);
   const speed1 = BALL_SPEED * (h1.speedMult || 1);
   const speed2 = BALL_SPEED * (h2.speedMult || 1);
   const v1 = randomVelocity(speed1);
@@ -3269,7 +3345,7 @@ function initBattle() {
   state.summons = [];
   state.fighters = [
     {
-      player: 1, name: "Player 1", heroId: state.p1Hero,
+      player: 1, name: "Player 1", heroId: p1HeroId,
       hp: h1.hp, maxHp: h1.hp,
       x: sp[0].x, y: sp[0].y,
       vx: v1.vx, vy: v1.vy,
@@ -3280,7 +3356,7 @@ function initBattle() {
       slowUntil: 0, invulnUntil: 0, beamAngle: Math.random() * Math.PI * 2, beamCd: 0, grootTimer: 0, phaseTimer: 0
     },
     {
-      player: 2, name: "Player 2", heroId: state.p2Hero,
+      player: 2, name: "Player 2", heroId: p2HeroId,
       hp: h2.hp, maxHp: h2.hp,
       x: sp[1].x, y: sp[1].y,
       vx: v2.vx, vy: v2.vy,
@@ -3293,32 +3369,59 @@ function initBattle() {
   ];
 
   state.log = [];
-  addLog("<strong>FIGHT!</strong> " + h1.name + " vs " + h2.name);
+  addLog("<strong>ROUND " + (state.roundIndex + 1) + "</strong> — " + h1.name + " vs " + h2.name);
   addLog("Arena: <strong>" + state.arena.name + "</strong>");
-  $("status-banner").textContent = state.arena.name.toUpperCase();
+  $("status-banner").textContent = "ROUND " + (state.roundIndex + 1);
+  updateSeriesScore();
   updateHud();
   drawArena();
   show("screen-battle");
   startBattleLoop();
 }
 
+function randomPickOptions() {
+  const ids = Object.keys(HEROES);
+  const options = [];
+  for (let i = 0; i < 3; i += 1) {
+    options.push(ids[Math.floor(Math.random() * ids.length)]);
+  }
+  return options;
+}
+
+function renderTeamPreview(team) {
+  const preview = $("team-preview");
+  preview.innerHTML = "";
+  for (let i = 0; i < 3; i += 1) {
+    const slot = document.createElement("div");
+    slot.className = "team-slot" + (team[i] ? " filled" : "");
+    if (team[i]) {
+      slot.textContent = getHeroDef(team[i]).abbr;
+      slot.style.borderTopColor = getHeroDef(team[i]).color;
+    } else {
+      slot.textContent = String(i + 1);
+    }
+    preview.appendChild(slot);
+  }
+}
+
 function renderHeroGrid() {
   const grid = $("hero-grid");
-  const taken = state.pickStep === 2 ? state.p1Hero : null;
   grid.innerHTML = "";
-  Object.values(HEROES).forEach((hero) => {
+  const team = state.pickStep === 1 ? state.p1Team : state.p2Team;
+  renderTeamPreview(team);
+
+  state.pickOptions.forEach((heroId) => {
+    const hero = getHeroDef(heroId);
     const card = document.createElement("button");
     card.type = "button";
     card.className = "hero-card";
     card.style.setProperty("--hero-color", hero.color);
-    if (hero.id === taken) card.classList.add("taken");
     if (state.selectedHero === hero.id) card.classList.add("selected");
     card.innerHTML =
       '<span class="hero-icon">' + hero.abbr + "</span>" +
       '<span class="hero-name">' + hero.name + "</span>" +
       '<span class="hero-power">' + hero.power.name + "</span>";
     card.addEventListener("click", () => {
-      if (hero.id === taken) return;
       state.selectedHero = hero.id;
       $("btn-confirm-pick").disabled = false;
       renderHeroGrid();
@@ -3327,15 +3430,51 @@ function renderHeroGrid() {
   });
 }
 
+function resetMatchDraft() {
+  state.p1Team = [];
+  state.p2Team = [];
+  state.pickStep = 1;
+  state.pickSlot = 0;
+  state.roundIndex = 0;
+  state.p1Wins = 0;
+  state.p2Wins = 0;
+  state.matchOver = false;
+  state.selectedHero = null;
+  state.pickOptions = randomPickOptions();
+}
+
 function showPickScreen(step) {
   state.pickStep = step;
+  state.pickSlot = step === 1 ? state.p1Team.length : state.p2Team.length;
   state.selectedHero = null;
+  state.pickOptions = randomPickOptions();
   $("btn-confirm-pick").disabled = true;
+
   const tag = $("pick-player-tag");
   tag.textContent = "Player " + step;
   tag.className = "player-tag " + (step === 1 ? "p1" : "p2");
+  $("pick-slot-note").textContent = "Hero pick " + (state.pickSlot + 1) + " of 3";
   renderHeroGrid();
   show("screen-pick");
+}
+
+function advanceAfterPlayerPick() {
+  const team = state.pickStep === 1 ? state.p1Team : state.p2Team;
+  if (team.length < 3) {
+    state.pickSlot = team.length;
+    state.selectedHero = null;
+    state.pickOptions = randomPickOptions();
+    $("pick-slot-note").textContent = "Hero pick " + (state.pickSlot + 1) + " of 3";
+    $("btn-confirm-pick").disabled = true;
+    renderHeroGrid();
+    return;
+  }
+
+  if (state.pickStep === 1) {
+    showHandoff("Pass to Player 2", "Draft your three heroes — three random options per pick.<br>Don't peek!", "pick2");
+  } else {
+    showHandoff("Ready to Fight?", "Both teams locked in.<br>Best of 3 rounds — tap <strong>Start Round 1</strong>!", "battle");
+  }
 }
 
 function showHandoff(title, subHtml, next) {
@@ -3348,12 +3487,11 @@ function showHandoff(title, subHtml, next) {
 function confirmPick() {
   if (!state.selectedHero) return;
   if (state.pickStep === 1) {
-    state.p1Hero = state.selectedHero;
-    showHandoff("Pass to Player 2", "Pick a hero — don't peek!", "pick2");
+    state.p1Team.push(state.selectedHero);
   } else {
-    state.p2Hero = state.selectedHero;
-    showHandoff("Ready to Watch?", "Both heroes locked in.<br>Tap <strong>Start Fight</strong> and enjoy the show!", "battle");
+    state.p2Team.push(state.selectedHero);
   }
+  advanceAfterPlayerPick();
 }
 
 function leaveToHub() {
@@ -3364,25 +3502,31 @@ function leaveToHub() {
 
 $("btn-hub").addEventListener("click", leaveToHub);
 $("btn-win-hub").addEventListener("click", leaveToHub);
-$("btn-fight").addEventListener("click", () => showPickScreen(1));
+$("btn-fight").addEventListener("click", () => {
+  resetMatchDraft();
+  showPickScreen(1);
+});
 $("btn-back-title").addEventListener("click", () => show("screen-title"));
 $("btn-confirm-pick").addEventListener("click", confirmPick);
 $("btn-handoff").addEventListener("click", () => {
   if (state.handoffNext === "pick2") showPickScreen(2);
   else if (state.handoffNext === "battle") initBattle();
 });
+$("btn-next-round").addEventListener("click", () => {
+  state.roundIndex += 1;
+  initBattle();
+});
 $("btn-rematch").addEventListener("click", () => {
   state.running = false;
   if (state.animId) cancelAnimationFrame(state.animId);
+  resetMatchDraft();
   showPickScreen(1);
 });
 
 window.__mbEnter = function () {
   state.running = false;
   if (state.animId) cancelAnimationFrame(state.animId);
-  state.p1Hero = null;
-  state.p2Hero = null;
-  state.selectedHero = null;
+  resetMatchDraft();
   show("screen-title");
 };
 })();

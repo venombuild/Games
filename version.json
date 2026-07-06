@@ -1,4 +1,4 @@
 {
-  "version": "2026070601",
-  "update": "Balanced all 9 Marvel Brawl heroes to similar win rates (~40-57% in all-matchup sims)."
+  "version": "2026070602",
+  "update": "Marvel Brawl is now best of 3: draft three heroes from random options, then fight one round per pick."
 }
