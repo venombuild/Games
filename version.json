@@ -1,4 +1,4 @@
 ﻿{
-  "version": "2026071401",
-  "update": "Draft picks now show 3 unique random heroes (no duplicates between players), hero cards have single-line names and short power taglines, arena map names are hidden during fights, Groot looks like an actual tree, and the sim reports average battle length."
+  "version": "2026071402",
+  "update": "Round-end screen now only shows Next Round or Back to Hub (no New Match mid-series). Hits spawn burst particles — sparks, streaks, and shockwaves tinted by attack type."
 }
