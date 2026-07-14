@@ -1,4 +1,4 @@
-{
-  "version": "2026070604",
-  "update": "Rocket's Groot summon cooldown increased (spawns less often)."
+﻿{
+  "version": "2026071401",
+  "update": "Draft picks now show 3 unique random heroes (no duplicates between players), hero cards have single-line names and short power taglines, arena map names are hidden during fights, Groot looks like an actual tree, and the sim reports average battle length."
 }

@@ -956,14 +956,29 @@
     const wins = {};
     const fights = {};
     Object.keys(HEROES).forEach((id) => { wins[id] = 0; fights[id] = 0; });
-    return { wins, fights };
+    return { wins, fights, totalDuration: 0, battleCount: 0 };
   }
 
   function recordFight(stats, p1, p2, result) {
     stats.fights[p1] += 1;
     stats.fights[p2] += 1;
+    stats.totalDuration += result.elapsed;
+    stats.battleCount += 1;
     if (result.winnerId) stats.wins[result.winnerId] += 1;
     else stats.timeouts = (stats.timeouts || 0) + 1;
+  }
+
+  function finalizeBatchResult(stats, queueLength, perPair, count, elapsedMs) {
+    return {
+      count: queueLength,
+      perPair: perPair,
+      perPairCount: perPair ? count : null,
+      wins: stats.wins,
+      fights: stats.fights,
+      timeouts: stats.timeouts,
+      avgBattleSec: stats.battleCount > 0 ? stats.totalDuration / stats.battleCount : 0,
+      elapsedMs: elapsedMs
+    };
   }
 
   function allMatchupPairs() {
@@ -1009,15 +1024,7 @@
       recordFight(stats, p1, p2, simBattle(p1, p2));
     });
 
-    return {
-      count: queue.length,
-      perPair: perPair,
-      perPairCount: perPair ? count : null,
-      wins: stats.wins,
-      fights: stats.fights,
-      timeouts: stats.timeouts,
-      elapsedMs: Math.round(performance.now() - start)
-    };
+    return finalizeBatchResult(stats, queue.length, perPair, count, Math.round(performance.now() - start));
   }
 
   function runBatchAsync(count, onProgress, options) {
@@ -1042,15 +1049,7 @@
         if (onProgress) onProgress(done, total);
 
         if (done >= total) {
-          resolve({
-            count: total,
-            perPair,
-            perPairCount: perPair ? count : null,
-            wins: stats.wins,
-            fights: stats.fights,
-            timeouts: stats.timeouts,
-            elapsedMs: Math.round(performance.now() - start)
-          });
+          resolve(finalizeBatchResult(stats, total, perPair, count, Math.round(performance.now() - start)));
           return;
         }
 

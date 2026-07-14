@@ -861,8 +861,23 @@ body.wrong-flash { animation: flash-red 0.4s ease-out; }
   display: block;
   margin-bottom: 4px;
 }
-#brawl-host .hero-name { font-family: 'Bebas Neue', sans-serif; font-size: 17px; letter-spacing: 1px; }
-#brawl-host .hero-power { font-size: 10px; color: var(--sub); letter-spacing: 1px; text-transform: uppercase; margin-top: 4px; }
+#brawl-host .hero-name {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  line-height: 1.15;
+  display: block;
+}
+#brawl-host .hero-power {
+  font-size: 10px;
+  color: var(--sub);
+  letter-spacing: 0.3px;
+  line-height: 1.35;
+  margin-top: 6px;
+  display: block;
+  min-height: 26px;
+}
 #brawl-host .handoff-inner { text-align: center; max-width: 300px; }
 #brawl-host .handoff-icon {
   font-family: 'Bebas Neue', sans-serif;
@@ -1579,6 +1594,7 @@ function renderSimResults(result) {
     metaText += " · " + result.perPairCount + " per matchup × " + window.BrawlSim.allMatchupPairs().length + " pairs";
   }
   if (result.timeouts) metaText += " · " + result.timeouts + " timeouts";
+  if (result.avgBattleSec != null) metaText += " · avg " + result.avgBattleSec.toFixed(1) + "s/fight";
   meta.textContent = metaText;
   panel.classList.remove("hidden");
 }
@@ -1697,10 +1713,12 @@ const HAMMER_RETURN_GRAB_RELEASE_DIST = 78;
 const HEROES = {
   ironman: {
     id: "ironman", name: "Iron Man", abbr: "IM", color: "#c41e2a", hp: 106,
+    tagline: "Charged unibeam blast",
     power: { type: "beam", name: "Unibeam", damage: 11, range: 150, interval: 3.3, windup: 0.4, beam: true }
   },
   cap: {
     id: "cap", name: "Captain America", abbr: "CA", color: "#1e4a8c", hp: 113,
+    tagline: "Shield throw & bash",
     power: {
       type: "shield", name: "Shield Throw", interval: 4.3, windup: 0.35,
       shieldDamage: 7, shieldLife: 2.3, damageReduction: 0.5, buffTime: 5,
@@ -1710,6 +1728,7 @@ const HEROES = {
   },
   thor: {
     id: "thor", name: "Thor", abbr: "TH", color: "#6b4ce6", hp: 104,
+    tagline: "Mjolnir throw & slam",
     power: {
       type: "hammer", name: "Mjolnir", interval: 4.65,
       meleeDamage: 4, meleeInterval: 2.35,
@@ -1719,26 +1738,32 @@ const HEROES = {
   },
   hulk: {
     id: "hulk", name: "Hulk", abbr: "HK", color: "#3d8b37", hp: 126,
+    tagline: "Heavy melee smash",
     power: { type: "touch", name: "Smash", damage: 17, interval: 3.5 }
   },
   spiderman: {
     id: "spiderman", name: "Spider-Man", abbr: "SM", color: "#c81e28", hp: 104, speedMult: 1.1,
+    tagline: "Fast — webs slow foes",
     power: { type: "web", name: "Web Barrage", interval: 3.65, webs: 4, webSpeed: 196, webDmg: 4.6, webLife: 2.8, webR: 18, slow: 1.15 }
   },
   rocket: {
     id: "rocket", name: "Rocket", abbr: "RK", color: "#9a6a33", hp: 99, radius: 12,
+    tagline: "Blaster + Groot tanks",
     power: { type: "blaster", name: "Blaster & Groot", interval: 1.6, bulletDmg: 6.1, bulletSpeed: 272, bulletR: 5, bulletLife: 1.6, grootInterval: 15, grootHp: 47 }
   },
   cyclops: {
     id: "cyclops", name: "Cyclops", abbr: "CY", color: "#2166a8", hp: 110,
+    tagline: "Spinning optic beam",
     power: { type: "spinbeam", name: "Optic Blast", interval: 1, rotSpeed: 1.15, width: 17, damage: 4.8, hitCd: 0.2 }
   },
   invisiblewoman: {
     id: "invisiblewoman", name: "Invisible Woman", abbr: "IW", color: "#39a4c4", hp: 107,
+    tagline: "Force push & phase out",
     power: { type: "force", name: "Force Field", interval: 2.6, range: 146, damage: 5, phaseInterval: 8.6, phaseDuration: 2.3 }
   },
   namor: {
     id: "namor", name: "Namor", abbr: "NM", color: "#2fa07a", hp: 107,
+    tagline: "Bouncing stun trident",
     power: { type: "trident", name: "Trident", interval: 3.3, dmg: 8.3, tridentSpeed: 236, tridentR: 7, stun: 0.43, maxActive: 4 }
   }
 };
@@ -2247,6 +2272,122 @@ function drawHeldHammer(fighter, facing) {
   const hy = fighter.y + facing.ny * (BALL_R + 10);
   const angle = Math.atan2(facing.ny, facing.nx) + Math.PI * 0.55;
   drawMjolnir(hx, hy, angle, 0.78, false);
+}
+
+function drawGrootSummon(s) {
+  const x = s.x, y = s.y, r = s.radius;
+  const remain = s.until - state.elapsed;
+  const alpha = remain < 1 ? Math.max(0.25, remain) : 1;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  ctx.fillStyle = "rgba(0,0,0,0.32)";
+  ctx.beginPath();
+  ctx.ellipse(x, y + r * 0.88, r * 0.72, r * 0.16, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "#3d2810";
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath();
+    ctx.moveTo(x + i * 4, y + r * 0.45);
+    ctx.quadraticCurveTo(x + i * 8, y + r * 0.75, x + i * 11, y + r * 0.98);
+    ctx.stroke();
+  }
+
+  const trunkGrad = ctx.createLinearGradient(x - r, y - r, x + r * 0.6, y + r);
+  trunkGrad.addColorStop(0, "#9a7340");
+  trunkGrad.addColorStop(0.4, "#6b4a24");
+  trunkGrad.addColorStop(1, "#352010");
+  ctx.fillStyle = trunkGrad;
+  ctx.beginPath();
+  ctx.ellipse(x, y, r * 0.78, r * 1.08, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "rgba(28,16,6,0.5)";
+  ctx.lineWidth = 1.5;
+  for (let i = -2; i <= 2; i++) {
+    ctx.beginPath();
+    ctx.moveTo(x + i * 5, y - r * 0.8);
+    ctx.lineTo(x + i * 4 + 1, y + r * 0.6);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = "#4a3418";
+  ctx.lineWidth = 5;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(x - r * 0.32, y - r * 0.12);
+  ctx.lineTo(x - r * 1.08, y - r * 0.42);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x + r * 0.32, y - r * 0.08);
+  ctx.lineTo(x + r * 1.02, y + r * 0.18);
+  ctx.stroke();
+
+  function leafTuft(lx, ly, lr) {
+    ctx.fillStyle = "#3d8b37";
+    ctx.beginPath();
+    ctx.arc(lx, ly, lr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#5cb04a";
+    ctx.beginPath();
+    ctx.arc(lx - lr * 0.3, ly - lr * 0.2, lr * 0.55, 0, Math.PI * 2);
+    ctx.arc(lx + lr * 0.25, ly - lr * 0.15, lr * 0.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  leafTuft(x - r * 0.55, y - r * 0.72, 7);
+  leafTuft(x + r * 0.5, y - r * 0.68, 6);
+  leafTuft(x, y - r * 0.95, 8);
+
+  ctx.fillStyle = "rgba(90,140,55,0.55)";
+  ctx.beginPath();
+  ctx.ellipse(x, y - r * 0.22, r * 0.42, r * 0.3, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#ffe566";
+  ctx.shadowColor = "#ffb830";
+  ctx.shadowBlur = 8;
+  ctx.beginPath();
+  ctx.arc(x - r * 0.2, y - r * 0.26, 3.5, 0, Math.PI * 2);
+  ctx.arc(x + r * 0.2, y - r * 0.26, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#1a1008";
+  ctx.beginPath();
+  ctx.arc(x - r * 0.2, y - r * 0.26, 1.5, 0, Math.PI * 2);
+  ctx.arc(x + r * 0.2, y - r * 0.26, 1.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "#2a1808";
+  ctx.lineWidth = 2;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(x - r * 0.1, y - r * 0.04);
+  ctx.lineTo(x + r * 0.1, y - r * 0.04);
+  ctx.stroke();
+
+  ctx.strokeStyle = "#2a1808";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.ellipse(x, y, r * 0.78, r * 1.08, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  if (s.maxHp) {
+    const w = r * 1.9;
+    const pct = Math.max(0, s.hp / s.maxHp);
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(x - w / 2, y - r - 12, w, 5);
+    ctx.fillStyle = "#4a8c38";
+    ctx.fillRect(x - w / 2, y - r - 12, w * pct, 5);
+    ctx.strokeStyle = "#2a1808";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - w / 2, y - r - 12, w, 5);
+  }
+
+  ctx.restore();
 }
 
 function resolveProjectileWall(proj, speed = PROJECTILE_SPEED) {
@@ -3048,34 +3189,7 @@ function drawArena() {
   });
 
   state.summons.forEach((s) => {
-    if (s.type === "groot") {
-      const remain = s.until - state.elapsed;
-      ctx.globalAlpha = remain < 1 ? Math.max(0.2, remain) : 1;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.radius + 2, 0, Math.PI * 2);
-      ctx.strokeStyle = "#3d2a12";
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
-      ctx.fillStyle = "#6b4a24";
-      ctx.fill();
-      ctx.fillStyle = "#e8e2c0";
-      ctx.beginPath();
-      ctx.arc(s.x - 8, s.y - 6, 3, 0, Math.PI * 2);
-      ctx.arc(s.x + 8, s.y - 6, 3, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (s.maxHp) {
-        const w = s.radius * 1.8;
-        const pct = Math.max(0, s.hp / s.maxHp);
-        ctx.fillStyle = "rgba(0,0,0,0.5)";
-        ctx.fillRect(s.x - w / 2, s.y - s.radius - 10, w, 4);
-        ctx.fillStyle = "#7ec86a";
-        ctx.fillRect(s.x - w / 2, s.y - s.radius - 10, w * pct, 4);
-      }
-      ctx.globalAlpha = 1;
-    }
+    if (s.type === "groot") drawGrootSummon(s);
   });
 
   state.fighters.forEach((f) => {
@@ -3370,8 +3484,7 @@ function initBattle() {
 
   state.log = [];
   addLog("<strong>ROUND " + (state.roundIndex + 1) + "</strong> — " + h1.name + " vs " + h2.name);
-  addLog("Arena: <strong>" + state.arena.name + "</strong>");
-  $("status-banner").textContent = "ROUND " + (state.roundIndex + 1);
+  $("status-banner").textContent = "FIGHT!";
   updateSeriesScore();
   updateHud();
   drawArena();
@@ -3379,14 +3492,19 @@ function initBattle() {
   startBattleLoop();
 }
 
+function takenHeroIds() {
+  return state.p1Team.concat(state.p2Team);
+}
+
 function randomPickOptions() {
-  const ids = Object.keys(HEROES);
-  const shuffled = ids.slice();
+  const taken = takenHeroIds();
+  const available = Object.keys(HEROES).filter((id) => taken.indexOf(id) === -1);
+  const shuffled = available.slice();
   for (let i = shuffled.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
-  return shuffled.slice(0, 3);
+  return shuffled.slice(0, Math.min(3, shuffled.length));
 }
 
 function renderTeamPreview(team) {
@@ -3421,7 +3539,7 @@ function renderHeroGrid() {
     card.innerHTML =
       '<span class="hero-icon">' + hero.abbr + "</span>" +
       '<span class="hero-name">' + hero.name + "</span>" +
-      '<span class="hero-power">' + hero.power.name + "</span>";
+      '<span class="hero-power">' + (hero.tagline || hero.power.name) + "</span>";
     card.addEventListener("click", () => {
       state.selectedHero = hero.id;
       $("btn-confirm-pick").disabled = false;
